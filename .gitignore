@@ -1,0 +1,116 @@
+# Entorno virtual
+venv/
+env/
+ENV/
+.venv/
+
+# Archivos de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Archivos de configuración local
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+*.log
+logs_alertas/
+vms.log
+
+# Capturas y archivos de salida
+capturas_alertas/
+output/
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tiff
+*.avi
+*.mp4
+*.mov
+*.mkv
+*.flv
+*.wmv
+
+# Archivos de modelo YOLO (muy grandes)
+*.pt
+*.pth
+*.weights
+*.onnx
+*.pb
+
+# Archivos temporales del sistema
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Archivos de IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Archivos de respaldo
+*.bak
+*.backup
+*.old
+
+# Archivos de configuración específicos del sistema
+config/local_settings.py
+config/production.py
+
+# Archivos de base de datos
+*.db
+*.sqlite
+*.sqlite3
+
+# Archivos de caché
+.cache/
+*.cache
+
+# Archivos de MediaPipe (si se generan)
+*.tflite
+
+# Archivos de OpenCV
+*.xml
+*.yml
+*.yaml
+
+# Archivos de configuración de cámara específicos
+camera_config.json
+hikvision_config.json
+
+# Archivos de estado de la aplicación
+app_state.json
+session_data.json
+
+# Archivos de respaldo de configuración
+*.conf.bak
+*.ini.bak 
