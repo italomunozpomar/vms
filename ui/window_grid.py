@@ -13,6 +13,88 @@ from config import config_manager
 from core.hikvision_events import register_event_callback, iniciar_eventos, detener_eventos
 
 
+from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon, QPainter
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject, QRect
+import time # Importar el módulo time
+
+from config import config_manager
+from core.hikvision_events import register_event_callback, iniciar_eventos, detener_eventos
+
+
+class CameraLabel(QLabel):
+    def __init__(self, canal_id, parent=None):
+        super().__init__(parent)
+        self.canal_id = canal_id
+        self.setAlignment(Qt.AlignCenter)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        self.setMouseTracking(True) # Habilitar seguimiento del ratón para efectos de hover
+
+        # Estilos base
+        self.base_style = """
+            background-color: #232323;
+            border: 2px solid #222;
+            border-radius: 8px;
+        """
+        self.selected_style = """
+            background-color: #232323;
+            border: 2px solid #00bfff; /* Azul brillante para selección */
+            border-radius: 8px;
+        """
+        self.hover_style = """
+            background-color: #282828;
+            border: 2px solid #555; /* Borde más claro al pasar el ratón */
+            border-radius: 8px;
+        """
+        
+        self.setStyleSheet(self.base_style)
+        self.is_selected = False
+        self.event_flash_timer = QTimer(self)
+        self.event_flash_timer.setSingleShot(True)
+        self.event_flash_timer.timeout.connect(self._reset_style_after_flash)
+
+    def set_selected(self, selected):
+        self.is_selected = selected
+        self._update_style()
+
+    def flash_border(self, event_type):
+        colors = {"motion": "#ff6600", "linecrossing": "#ff0000", "intrusion": "#00bfff"}
+        color = colors.get(event_type.lower(), "#ffffff")
+        flash_style = f"background-color: #232323; border: 2px solid {color}; border-radius: 8px;"
+        self.setStyleSheet(flash_style)
+        self.event_flash_timer.start(400) # Parpadea por 400ms
+
+    def _reset_style_after_flash(self):
+        self._update_style()
+
+    def _update_style(self):
+        if self.is_selected:
+            self.setStyleSheet(self.selected_style)
+        else:
+            self.setStyleSheet(self.base_style)
+
+    def enterEvent(self, event):
+        if not self.is_selected:
+            self.setStyleSheet(self.hover_style)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if not self.is_selected:
+            self.setStyleSheet(self.base_style)
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setPen(QColor(255, 255, 255)) # Color blanco para el texto
+        painter.setFont(self.font())
+        
+        # Dibujar el ID de la cámara en la esquina superior izquierda
+        text_rect = QRect(5, 5, self.width() - 10, 20)
+        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignTop, f"Cámara {self.canal_id}")
+
+
 class EventSignals(QObject):
     """Clase para manejar señales de eventos entre threads"""
     event_detected = pyqtSignal(str, str, str, str, str)  # cam_ip, channel, event_type, event_desc, ruta_imagen
@@ -23,6 +105,7 @@ class VMSGridWindow(QWidget):
         super().__init__()
         self.setWindowTitle("VMS - Cámaras IP")
         self.camera_threads = camera_threads
+        self.setMinimumSize(1280, 720) # Set a minimum size for the main window
 
         self.event_signals = EventSignals()
         self.event_signals.event_detected.connect(self.on_event_detected)
@@ -55,10 +138,6 @@ class VMSGridWindow(QWidget):
         self.selected_cameras = set()
         self.event_flash_timers = {}
         self.event_log = []
-
-        # Variables para cálculo de FPS de visualización
-        self.display_fps_start_time = time.time()
-        self.display_fps_frame_count = 0
 
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
@@ -134,20 +213,29 @@ class VMSGridWindow(QWidget):
         self.btn_manos_arriba.clicked.connect(self.toggle_manos_arriba)
         self.btn_rostros.clicked.connect(self.toggle_rostros)
 
+        # Inicializar el estilo de los botones
+        self._update_button_style(self.btn_record, False)
+        self._update_button_style(self.btn_analitica, False)
+        self._update_button_style(self.btn_manos_arriba, False)
+        self._update_button_style(self.btn_rostros, False)
+
+        num_cameras = len(config_manager.canales_originales)
+        num_cols = 2  # Assuming 2 columns as per your original layout
+        num_rows = (num_cameras + num_cols - 1) // num_cols
+
         for i, canal in enumerate(config_manager.canales_originales):
-            label = QLabel()
-            label.setAlignment(Qt.AlignCenter)
-            label.setStyleSheet('''
-                background-color: #232323;
-                border: 2px solid #222; /* Borde inicial de 2px */
-                border-radius: 8px;
-            ''')
-            label.setFrameShape(QFrame.NoFrame)
-            label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            label.setMinimumSize(320, 180)
+            label = CameraLabel(canal)
             label.mousePressEvent = lambda event, c=canal: self.seleccionar_camara(c)
             self.labels[canal] = label
-            self.grid.addWidget(label, i // 2, i % 2)
+            row = i // num_cols
+            col = i % num_cols
+            self.grid.addWidget(label, row, col)
+
+        # Ensure columns and rows stretch equally
+        for i in range(num_cols):
+            self.grid.setColumnStretch(i, 1)
+        for i in range(num_rows):
+            self.grid.setRowStretch(i, 1)
 
         for canal, thread in self.camera_threads.items():
             thread.frame_ready.connect(self.update_frame)
@@ -174,33 +262,16 @@ class VMSGridWindow(QWidget):
 
     def flash_camera_border(self, canal, event_type):
         if canal not in self.labels: return
-        if canal in self.event_flash_timers: self.event_flash_timers[canal].stop()
-        
-        colors = {"motion": "#ff6600", "linecrossing": "#ff0000", "intrusion": "#00bfff"}
-        color = colors.get(event_type.lower(), "#ffffff")
         label = self.labels[canal]
-        
-        normal_style = "background-color: #232323; border: 2px solid #222; border-radius: 8px;"
-        flash_style = f"background-color: #232323; border: 2px solid {color}; border-radius: 8px;"
-        
-        label.setStyleSheet(flash_style)
-        QTimer.singleShot(400, lambda: label.setStyleSheet(normal_style))
+        label.flash_border(event_type)
 
     def seleccionar_camara(self, canal):
         if canal in self.selected_cameras:
             self.selected_cameras.remove(canal)
-            self.labels[canal].setStyleSheet("""
-                background-color: #232323;
-                border: 2px solid #222;
-                border-radius: 8px;
-            """)
+            self.labels[canal].set_selected(False)
         else:
             self.selected_cameras.add(canal)
-            self.labels[canal].setStyleSheet("""
-                background-color: #232323;
-                border: 2px solid #00bfff; /* Azul brillante para selección */
-                border-radius: 8px;
-            """)
+            self.labels[canal].set_selected(True)
 
     def update_frame(self, canal_id, pixmap):
         if canal_id in self.labels:
@@ -212,6 +283,7 @@ class VMSGridWindow(QWidget):
         for canal in self.selected_cameras:
             is_recording = config_manager.toggle_recording(canal)
             print(f"Grabación {'ON' if is_recording else 'OFF'} en cámara {canal}")
+            self._update_button_style(self.btn_record, is_recording)
 
     def tomar_snapshot(self):
         for canal in self.selected_cameras:
@@ -222,19 +294,57 @@ class VMSGridWindow(QWidget):
         for canal in self.selected_cameras:
             is_active = config_manager.toggle_analytics(canal)
             print(f"Detección de Personas {'ON' if is_active else 'OFF'} en cámara {canal}")
+            self._update_button_style(self.btn_analitica, is_active)
 
     def toggle_manos_arriba(self):
         for canal in self.selected_cameras:
             is_active = config_manager.toggle_hands_up(canal)
             print(f"Detección Manos Arriba {'ON' if is_active else 'OFF'} en cámara {canal}")
+            self._update_button_style(self.btn_manos_arriba, is_active)
 
     def toggle_rostros(self):
         for canal in self.selected_cameras:
             is_active = config_manager.toggle_face_detection(canal)
             print(f"Detección de Rostros {'ON' if is_active else 'OFF'} en cámara {canal}")
+            self._update_button_style(self.btn_rostros, is_active)
+
+    def _update_button_style(self, button, is_active):
+        if is_active:
+            button.setStyleSheet('''
+                QPushButton {
+                    background-color: #007bff; /* Azul para activo */
+                    color: #fff;
+                    border-radius: 10px;
+                    border: 2px solid #0056b3;
+                    font-size: 15px;
+                    font-weight: bold;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #0056b3;
+                    border: 2px solid #007bff;
+                    color: #fff;
+                }
+            ''')
+        else:
+            button.setStyleSheet('''
+                QPushButton {
+                    background-color: #222;
+                    color: #fff;
+                    border-radius: 10px;
+                    border: 2px solid #444;
+                    font-size: 15px;
+                    font-weight: bold;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #444;
+                    border: 2px solid #00bfff;
+                    color: #00bfff;
+                }
+            ''')
 
     def closeEvent(self, event):
-        self.timer.stop()
         for timer in self.event_flash_timers.values():
             timer.stop()
         detener_eventos()
