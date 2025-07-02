@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import(
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon
+import time # Importar el módulo time
 
 from config import config_manager
 from core.hikvision_events import register_event_callback, iniciar_eventos, detener_eventos
@@ -54,6 +55,10 @@ class VMSGridWindow(QWidget):
         self.selected_cameras = set()
         self.event_flash_timers = {}
         self.event_log = []
+
+        # Variables para cálculo de FPS de visualización
+        self.display_fps_start_time = time.time()
+        self.display_fps_frame_count = 0
 
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
@@ -134,7 +139,7 @@ class VMSGridWindow(QWidget):
             label.setAlignment(Qt.AlignCenter)
             label.setStyleSheet('''
                 background-color: #232323;
-                border: 1px solid #222;
+                border: 2px solid #222; /* Borde inicial de 2px */
                 border-radius: 8px;
             ''')
             label.setFrameShape(QFrame.NoFrame)
@@ -144,9 +149,8 @@ class VMSGridWindow(QWidget):
             self.labels[canal] = label
             self.grid.addWidget(label, i // 2, i % 2)
 
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.actualizar_frames)
-        self.timer.start(40)  # 25 FPS
+        for canal, thread in self.camera_threads.items():
+            thread.frame_ready.connect(self.update_frame)
 
         register_event_callback(self.event_callback_wrapper)
         iniciar_eventos()
@@ -176,8 +180,8 @@ class VMSGridWindow(QWidget):
         color = colors.get(event_type.lower(), "#ffffff")
         label = self.labels[canal]
         
-        normal_style = "background-color: #232323; border: 1px solid #222; border-radius: 8px;"
-        flash_style = f"background-color: #232323; border: 1px solid {color}; border-radius: 8px;"
+        normal_style = "background-color: #232323; border: 2px solid #222; border-radius: 8px;"
+        flash_style = f"background-color: #232323; border: 2px solid {color}; border-radius: 8px;"
         
         label.setStyleSheet(flash_style)
         QTimer.singleShot(400, lambda: label.setStyleSheet(normal_style))
@@ -185,35 +189,24 @@ class VMSGridWindow(QWidget):
     def seleccionar_camara(self, canal):
         if canal in self.selected_cameras:
             self.selected_cameras.remove(canal)
-            self.labels[canal].setStyleSheet("background-color: black; border: 2px solid gray;")
+            self.labels[canal].setStyleSheet("""
+                background-color: #232323;
+                border: 2px solid #222;
+                border-radius: 8px;
+            """)
         else:
             self.selected_cameras.add(canal)
-            self.labels[canal].setStyleSheet("background-color: black; border: 2px solid blue;")
+            self.labels[canal].setStyleSheet("""
+                background-color: #232323;
+                border: 2px solid #00bfff; /* Azul brillante para selección */
+                border-radius: 8px;
+            """)
 
-    def actualizar_frames(self):
-        for canal in config_manager.canales_originales:
-            frame = config_manager.get_frame(canal)
-            if frame is None or frame.size == 0: continue
-
-            frame_display = frame.copy()
-            texto = f"Cámara {canal}"
-            estados = []
-            if config_manager.is_recording(canal): estados.append("Grabando: ON")
-            if config_manager.is_analytics_active(canal): estados.append("Personas: ON")
-            if config_manager.is_hands_up_active(canal): estados.append("Manos: ON")
-            if config_manager.is_face_detection_active(canal): estados.append("Rostros: ON")
-
-            if estados: texto += " | " + " | ".join(estados)
-
-            cv2.putText(frame_display, texto, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-
-            rgb = cv2.cvtColor(frame_display, cv2.COLOR_BGR2RGB)
-            h, w, ch = rgb.shape
-            qt_image = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
-            pix = QPixmap.fromImage(qt_image)
-            label = self.labels[canal]
-            pix_resized = pix.scaled(label.width(), label.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            label.setPixmap(pix_resized)
+    def update_frame(self, canal_id, pixmap):
+        if canal_id in self.labels:
+            label = self.labels[canal_id]
+            pixmap_resized = pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            label.setPixmap(pixmap_resized)
 
     def toggle_grabacion(self):
         for canal in self.selected_cameras:

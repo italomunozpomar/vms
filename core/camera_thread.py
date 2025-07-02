@@ -1,22 +1,32 @@
-import cv2
-import time
+import queue
 import threading
+import time
 import os
 from datetime import datetime
-import numpy as np
-import queue
 import atexit
+import cv2
+from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtCore import pyqtSignal, QThread, Qt # Importar QThread y Qt
 
 from config import config_manager
 from core.yolo_model import modelo_yolo
 from core.manos_arriba import detectar_manos_arriba
-from core.zona_interes import procesar_zona_interes
 from core.deteccion_rostro import detectar_rostros
 
 # Cola para procesamiento asíncrono de rostros
 rostros_queue = queue.Queue(maxsize=5)
 rostros_thread = None
 rostros_running = False
+
+# Cola para procesamiento asíncrono de manos arriba
+manos_arriba_queue = queue.Queue(maxsize=5)
+manos_arriba_thread = None
+manos_arriba_running = False
+
+# Cola para procesamiento asíncrono de grabación y snapshots
+io_queue = queue.Queue(maxsize=10)
+io_thread = None
+io_running = False
 
 def rostros_worker():
     """Worker thread para procesar detección de rostros de forma asíncrona"""
@@ -31,8 +41,8 @@ def rostros_worker():
             
             try:
                 frame_processed = detectar_rostros(frame_copy)
-                if frame_processed is not None:
-                    config_manager.set_frame(canal_id, frame_processed)
+                # Ya no se guarda en config_manager, se procesa y se emite
+                # config_manager.set_frame(canal_id, frame_processed)
             except Exception as e:
                 print(f"Error en worker de rostros para cámara {canal_id}: {e}")
                 
@@ -40,6 +50,88 @@ def rostros_worker():
             continue
         except Exception as e:
             print(f"Error en worker de rostros: {e}")
+
+def manos_arriba_worker():
+    """Worker thread para procesar detección de manos arriba de forma asíncrona"""
+    global manos_arriba_running
+    while manos_arriba_running:
+        try:
+            data = manos_arriba_queue.get(timeout=1)
+            if data is None:  # Señal de parada
+                break
+            
+            canal_id, frame_copy = data
+            
+            try:
+                frame_processed, detectado = detectar_manos_arriba(frame_copy, guardar_captura=True, output_path=str(config_manager.output_folder))
+                if detectado:
+                    print(f"Canal {canal_id}: ¡Manos arriba detectadas!")
+            except Exception as e:
+                print(f"Error en worker de manos arriba para cámara {canal_id}: {e}")
+                
+        except queue.Empty:
+            continue
+        except Exception as e:
+            print(f"Error en worker de manos arriba: {e}")
+
+def io_worker():
+    """Worker thread para procesar operaciones de E/S (grabación y snapshots) de forma asíncrona"""
+    global io_running
+    while io_running:
+        try:
+            task = io_queue.get(timeout=1)
+            if task is None:  # Señal de parada
+                break
+            
+            task_type = task['type']
+            canal_id = task['canal_id']
+            frame = task['frame']
+
+            if task_type == 'record':
+                video_writer = config_manager.get_video_writer(canal_id)
+                if video_writer is None:
+                    try:
+                        filename = datetime.now().strftime(f"{canal_id}_%Y%m%d_%H%M%S.avi")
+                        filepath = os.path.join(config_manager.output_folder, "videos", filename)
+                        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                        h, w = frame.shape[:2]
+                        new_writer = cv2.VideoWriter(filepath, fourcc, 30.0, (w, h))
+                        config_manager.set_video_writer(canal_id, new_writer)
+                        print(f"🎥 Comenzó grabación para cámara {canal_id}")
+                    except Exception as e:
+                        print(f"Error al iniciar grabación para cámara {canal_id}: {e}")
+                
+                if config_manager.get_video_writer(canal_id) is not None:
+                    try:
+                        config_manager.get_video_writer(canal_id).write(frame)
+                    except Exception as e:
+                        print(f"Error al escribir frame en grabación para cámara {canal_id}: {e}")
+            
+            elif task_type == 'stop_record':
+                video_writer = config_manager.get_video_writer(canal_id)
+                if video_writer is not None:
+                    try:
+                        video_writer.release()
+                        config_manager.set_video_writer(canal_id, None)
+                        print(f"Grabación detenida para cámara {canal_id}")
+                    except Exception as e:
+                        print(f"Error al detener grabación para cámara {canal_id}: {e}")
+
+            elif task_type == 'snapshot':
+                try:
+                    filename = datetime.now().strftime(f"{canal_id}_snapshot_%Y%m%d_%H%M%S.jpg")
+                    filepath = os.path.join(config_manager.output_folder, "captures", filename)
+                    cv2.imwrite(filepath, frame)
+                    print(f"📸 Snapshot guardado: {filepath}")
+                    config_manager.clear_snapshot_request(canal_id)
+                except Exception as e:
+                    print(f"Error al guardar snapshot para cámara {canal_id}: {e}")
+                    config_manager.clear_snapshot_request(canal_id)
+                
+        except queue.Empty:
+            continue
+        except Exception as e:
+            print(f"Error en worker de E/S: {e}")
 
 def iniciar_rostros_worker():
     """Inicia el worker thread para rostros"""
@@ -59,9 +151,49 @@ def detener_rostros_worker():
         rostros_thread.join(timeout=2)
         print("Worker de rostros detenido")
 
-iniciar_rostros_worker()
+def iniciar_manos_arriba_worker():
+    """Inicia el worker thread para manos arriba"""
+    global manos_arriba_thread, manos_arriba_running
+    if manos_arriba_thread is None or not manos_arriba_thread.is_alive():
+        manos_arriba_running = True
+        manos_arriba_thread = threading.Thread(target=manos_arriba_worker, daemon=True)
+        manos_arriba_thread.start()
+        print("Worker de manos arriba iniciado")
 
-class CamaraThread(threading.Thread):
+def detener_manos_arriba_worker():
+    """Detiene el worker thread de manos arriba"""
+    global manos_arriba_running
+    manos_arriba_running = False
+    if manos_arriba_thread and manos_arriba_thread.is_alive():
+        manos_arriba_queue.put(None)
+        manos_arriba_thread.join(timeout=2)
+        print("Worker de manos arriba detenido")
+
+def iniciar_io_worker():
+    """Inicia el worker thread para operaciones de E/S"""
+    global io_thread, io_running
+    if io_thread is None or not io_thread.is_alive():
+        io_running = True
+        io_thread = threading.Thread(target=io_worker, daemon=True)
+        io_thread.start()
+        print("Worker de E/S iniciado")
+
+def detener_io_worker():
+    """Detiene el worker thread de E/S"""
+    global io_running
+    io_running = False
+    if io_thread and io_thread.is_alive():
+        io_queue.put(None)
+        io_thread.join(timeout=2)
+        print("Worker de E/S detenido")
+
+iniciar_rostros_worker()
+iniciar_manos_arriba_worker()
+iniciar_io_worker()
+
+class CamaraThread(QThread): # Heredar de QThread
+    frame_ready = pyqtSignal(str, QPixmap) # Señal para enviar el frame procesado a la UI
+
     def __init__(self, canal_id):
         super().__init__()
         self.canal_id = canal_id
@@ -95,7 +227,11 @@ class CamaraThread(threading.Thread):
                 continue
 
             print(f"Cámara {canal_actual} conectada")
-            self.reconnect_attempts = 0
+            self.reconnect_attempts = 0  # Resetear contador de intentos
+            
+            # Variables para cálculo de FPS
+            start_time = time.time()
+            fps_frame_count = 0
 
             while not config_manager.should_stop():
                 if canal_actual != config_manager.get_current_active_channel(self.canal_id):
@@ -107,9 +243,15 @@ class CamaraThread(threading.Thread):
                     print(f"No se pudo leer frame de {canal_actual}, intentando reconectar...")
                     cap.release()
                     time.sleep(self.reconnect_delay)
-                    break
+                    continue # Usar continue para reintentar la conexión en el bucle exterior
 
                 self.frame_count += 1
+                fps_frame_count += 1
+
+                # Cálculo de FPS (sin mostrar en consola)
+                if time.time() - start_time >= 1.0:
+                    fps_frame_count = 0
+                    start_time = time.time()
 
                 # --- Analíticas ---
                 if config_manager.is_analytics_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['yolo_frame_skip'] == 0):
@@ -119,27 +261,31 @@ class CamaraThread(threading.Thread):
                         detections = []
                         for result in results:
                             boxes = result.boxes
+                                
                             for box in boxes:
                                 if int(box.cls[0]) == self.class_id:
                                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                                     conf = box.conf[0].cpu().numpy()
                                     detections.append([x1, y1, x2, y2, conf])
+                        # No se guarda en config_manager, solo se usa para dibujar
                         self.last_detections = detections
                     except Exception as e:
                         print(f"Error en detección YOLO para cámara {self.canal_id}: {e}")
-                
-                for box in self.last_detections:
-                    x1, y1, x2, y2, conf = map(int, box)
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(frame, "Persona Detectada", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            
+                # Dibujar detecciones de YOLO en el frame (si hay analítica activa)
+                if config_manager.is_analytics_active(self.canal_id):
+                    for box in self.last_detections:
+                        x1, y1, x2, y2, conf = map(int, box)
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        cv2.putText(frame, "Persona Detectada", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
                 if config_manager.is_hands_up_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['hands_frame_skip'] == 0):
                     try:
-                        frame, detectado = detectar_manos_arriba(frame, guardar_captura=True, output_path=str(config_manager.output_folder))
-                        if detectado:
-                            print(f"Canal {self.canal_id}: ¡Manos arriba detectadas!")
+                        if not manos_arriba_queue.full():
+                            frame_copy = frame.copy()
+                            manos_arriba_queue.put((self.canal_id, frame_copy), block=False)
                     except Exception as e:
-                        print(f"Error en detección manos arriba para cámara {self.canal_id}: {e}")
+                        print(f"Error al enviar frame para detección de manos arriba en cámara {self.canal_id}: {e}")
 
                 if config_manager.is_face_detection_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['face_frame_skip'] == 0):
                     try:
@@ -149,48 +295,56 @@ class CamaraThread(threading.Thread):
                     except Exception as e:
                         print(f"Error al enviar frame para detección de rostros en cámara {self.canal_id}: {e}")
 
-                config_manager.set_frame(self.canal_id, frame)
+                # Añadir texto de estado al frame en el CamaraThread
+                texto = f"Cámara {self.canal_id}"
+                estados = []
+                if config_manager.is_recording(self.canal_id): estados.append("Grabando: ON")
+                if config_manager.is_analytics_active(self.canal_id): estados.append("Personas: ON")
+                if config_manager.is_hands_up_active(self.canal_id): estados.append("Manos: ON")
+                if config_manager.is_face_detection_active(self.canal_id): estados.append("Rostros: ON")
+
+                if estados:
+                    texto += " | " + " | ".join(estados)
+
+                cv2.putText(frame, texto, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+
+                # Convertir a RGB en el CamaraThread
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+                # Crear QImage y QPixmap en el CamaraThread
+                h, w, ch = rgb_frame.shape
+                bytes_per_line = ch * w
+                qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+                pix = QPixmap.fromImage(qt_image)
+
+                # Pre-escalado rápido en el hilo de la cámara para reducir la carga en la UI
+                pix_resized = pix.scaled(640, 360, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+                # Emitir la señal con el QPixmap listo
+                self.frame_ready.emit(self.canal_id, pix_resized)
 
                 # --- Grabación y Snapshot ---
                 if config_manager.is_recording(self.canal_id):
-                    video_writer = config_manager.get_video_writer(self.canal_id)
-                    if video_writer is None:
-                        try:
-                            filename = datetime.now().strftime(f"{self.canal_id}_%Y%m%d_%H%M%S.avi")
-                            filepath = os.path.join(config_manager.output_folder, "videos", filename)
-                            fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                            h, w = frame.shape[:2]
-                            new_writer = cv2.VideoWriter(filepath, fourcc, 30.0, (w, h))
-                            config_manager.set_video_writer(self.canal_id, new_writer)
-                            print(f"🎥 Comenzó grabación para cámara {self.canal_id}")
-                        except Exception as e:
-                            print(f"Error al iniciar grabación para cámara {self.canal_id}: {e}")
-                    
+                    try:
+                        if not io_queue.full():
+                            io_queue.put({'type': 'record', 'canal_id': self.canal_id, 'frame': frame.copy()}, block=False)
+                    except Exception as e:
+                        print(f"Error al enviar frame para grabación en cámara {self.canal_id}: {e}")
+                else:
+                    # Si la grabación se detuvo, enviar una señal al worker de E/S para liberar el VideoWriter
                     if config_manager.get_video_writer(self.canal_id) is not None:
                         try:
-                            config_manager.get_video_writer(self.canal_id).write(frame)
+                            if not io_queue.full():
+                                io_queue.put({'type': 'stop_record', 'canal_id': self.canal_id, 'frame': None}, block=False)
                         except Exception as e:
-                            print(f"Error al escribir frame en grabación para cámara {self.canal_id}: {e}")
-                else:
-                    video_writer = config_manager.get_video_writer(self.canal_id)
-                    if video_writer is not None:
-                        try:
-                            video_writer.release()
-                            config_manager.set_video_writer(self.canal_id, None)
-                            print(f"Grabación detenida para cámara {self.canal_id}")
-                        except Exception as e:
-                            print(f"Error al detener grabación para cámara {self.canal_id}: {e}")
+                            print(f"Error al enviar señal de detener grabación para cámara {self.canal_id}: {e}")
 
                 if config_manager.is_snapshot_requested(self.canal_id):
                     try:
-                        filename = datetime.now().strftime(f"{self.canal_id}_snapshot_%Y%m%d_%H%M%S.jpg")
-                        filepath = os.path.join(config_manager.output_folder, "captures", filename)
-                        cv2.imwrite(filepath, frame)
-                        print(f"📸 Snapshot guardado: {filepath}")
-                        config_manager.clear_snapshot_request(self.canal_id)
+                        if not io_queue.full():
+                            io_queue.put({'type': 'snapshot', 'canal_id': self.canal_id, 'frame': frame.copy()}, block=False)
                     except Exception as e:
-                        print(f"Error al guardar snapshot para cámara {self.canal_id}: {e}")
-                        config_manager.clear_snapshot_request(self.canal_id)
+                        print(f"Error al enviar solicitud de snapshot para cámara {self.canal_id}: {e}")
 
             cap.release()
             video_writer = config_manager.get_video_writer(self.canal_id)
@@ -202,3 +356,5 @@ class CamaraThread(threading.Thread):
                     print(f"Error al liberar video writer para cámara {self.canal_id}: {e}")
 
 atexit.register(detener_rostros_worker)
+atexit.register(detener_manos_arriba_worker)
+atexit.register(detener_io_worker)

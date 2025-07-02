@@ -14,9 +14,9 @@ class ConfigManager:
         # --- Configuración Estática ---
         self.PERFORMANCE_CONFIG = {
             'max_fps': 25,
-            'frame_width': 640,
-            'frame_height': 480,
-            'buffer_size': 1,
+            'frame_width': 1920,
+            'frame_height': 1080,
+            'buffer_size': 5, # Aumentado de 1 a 3 para suavizar el video
             'reconnect_attempts': 5,
             'reconnect_delay': 2,
             'yolo_frame_skip': 5,
@@ -73,11 +73,8 @@ class ConfigManager:
         with self._lock:
             is_active = not self._analitica_activa.get(canal_id, False)
             self._analitica_activa[canal_id] = is_active
-            # Cambiar a flujo de baja resolución si la analítica se activa
-            if is_active:
-                self._canales_activos[canal_id] = self.canales_baja.get(canal_id, canal_id)
-            else:
-                self._canales_activos[canal_id] = canal_id
+            # Al activar la analítica, ya no se cambia al flujo de baja resolución.
+            # El sistema continuará usando el canal principal definido en _canales_activos.
             return is_active
 
     def get_active_channel_url(self, canal_id):

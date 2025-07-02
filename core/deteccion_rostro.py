@@ -33,17 +33,6 @@ descargar_archivo(MODEL_CAFFE_URL, MODEL_CAFFE_LOCAL)
 # Cargar el modelo DNN una sola vez (cache)
 print("Cargando modelo de detección de rostros...")
 net = cv2.dnn.readNetFromCaffe(PROTO_TXT_LOCAL, MODEL_CAFFE_LOCAL)
-
-# Intentar configurar el backend de CUDA para usar la GPU
-try:
-    print("Intentando configurar backend CUDA para DNN...")
-    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
-    print("Backend CUDA configurado exitosamente. La detección de rostros usará la GPU.")
-except Exception as e:
-    print(f"No se pudo configurar el backend de CUDA para la GPU: {e}")
-    print("La detección de rostros se ejecutará en la CPU.")
-
 print("Modelo de rostros cargado")
 
 # Conexión a SQL Server
