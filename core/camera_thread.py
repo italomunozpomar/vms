@@ -7,20 +7,14 @@ import numpy as np
 import queue
 import atexit
 
-from config.settings import (
-    rtsp_base, canales_activos, analitica_activa,
-    frames, recording_flags, video_writers, manos_arriba_activa,
-    snapshot_flags, output_folder, zona_interes_activa, rostros_activa
-)
-from core.yolo_model import modelo_yolo  # Tu modelo YOLO (ultralytics)
-from core.manos_arriba import detectar_manos_arriba  # Detección manos arriba
-from core.zona_interes import procesar_zona_interes  # Zona interés
+from config import config_manager
+from core.yolo_model import modelo_yolo
+from core.manos_arriba import detectar_manos_arriba
+from core.zona_interes import procesar_zona_interes
 from core.deteccion_rostro import detectar_rostros
 
-detener = False
-
 # Cola para procesamiento asíncrono de rostros
-rostros_queue = queue.Queue(maxsize=5)  # Limitar cola para evitar acumulación
+rostros_queue = queue.Queue(maxsize=5)
 rostros_thread = None
 rostros_running = False
 
@@ -29,21 +23,16 @@ def rostros_worker():
     global rostros_running
     while rostros_running:
         try:
-            # Obtener frame de la cola con timeout
             data = rostros_queue.get(timeout=1)
             if data is None:  # Señal de parada
                 break
-                
+            
             canal_id, frame_copy = data
             
             try:
-                # Procesar detección de rostros
                 frame_processed = detectar_rostros(frame_copy)
-                
-                # Actualizar el frame original con los resultados
                 if frame_processed is not None:
-                    frames[canal_id] = frame_processed
-                    
+                    config_manager.set_frame(canal_id, frame_processed)
             except Exception as e:
                 print(f"Error en worker de rostros para cámara {canal_id}: {e}")
                 
@@ -66,11 +55,10 @@ def detener_rostros_worker():
     global rostros_running
     rostros_running = False
     if rostros_thread and rostros_thread.is_alive():
-        rostros_queue.put(None)  # Señal de parada
+        rostros_queue.put(None)
         rostros_thread.join(timeout=2)
         print("Worker de rostros detenido")
 
-# Iniciar worker al importar el módulo
 iniciar_rostros_worker()
 
 class CamaraThread(threading.Thread):
@@ -79,25 +67,21 @@ class CamaraThread(threading.Thread):
         self.canal_id = canal_id
         self.frame_count = 0
         self.class_id = 0  # clase persona
-        self.frame_skip = 5  # Optimización: Detectar cada 5 frames en lugar de 3
         self.last_detections = []
         self.reconnect_attempts = 0
-        self.max_reconnect_attempts = 5
-        self.reconnect_delay = 2
+        self.max_reconnect_attempts = config_manager.PERFORMANCE_CONFIG['reconnect_attempts']
+        self.reconnect_delay = config_manager.PERFORMANCE_CONFIG['reconnect_delay']
 
     def run(self):
-        global detener
+        while not config_manager.should_stop():
+            url = config_manager.get_active_channel_url(self.canal_id)
+            canal_actual = config_manager.get_current_active_channel(self.canal_id)
 
-        while not detener:
-            canal_actual = canales_activos[self.canal_id]
-            url = rtsp_base.format(canal_actual)
-
-            # Optimización: Configurar parámetros de captura para mejor rendimiento
             cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            cap.set(cv2.CAP_PROP_FPS, 25)  # Cambiado a 25 FPS para mejor calidad
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Resolución estándar
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, config_manager.PERFORMANCE_CONFIG['buffer_size'])
+            cap.set(cv2.CAP_PROP_FPS, config_manager.PERFORMANCE_CONFIG['max_fps'])
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, config_manager.PERFORMANCE_CONFIG['frame_width'])
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config_manager.PERFORMANCE_CONFIG['frame_height'])
             cap.open(url, cv2.CAP_FFMPEG)
 
             if not cap.isOpened():
@@ -111,10 +95,10 @@ class CamaraThread(threading.Thread):
                 continue
 
             print(f"Cámara {canal_actual} conectada")
-            self.reconnect_attempts = 0  # Resetear contador de intentos
+            self.reconnect_attempts = 0
 
-            while not detener:
-                if canal_actual != canales_activos[self.canal_id]:
+            while not config_manager.should_stop():
+                if canal_actual != config_manager.get_current_active_channel(self.canal_id):
                     cap.release()
                     break
 
@@ -127,113 +111,94 @@ class CamaraThread(threading.Thread):
 
                 self.frame_count += 1
 
-                # Control de zona de interés
-                zona_interes_id = "602"
-                zona_activa = zona_interes_activa.get(zona_interes_id, False)
-
-                # Analítica YOLO (persona) - Optimización: Reducir frecuencia de detección
-                if analitica_activa[self.canal_id] and (not zona_activa or self.canal_id == zona_interes_id):
-                    if self.frame_count % self.frame_skip == 0:
-                        try:
-                            results = modelo_yolo(frame, verbose=False)
-                            
-                            detections = []
-                            for result in results:
-                                boxes = result.boxes
-                                for box in boxes:
-                                    if int(box.cls[0]) == self.class_id:
-                                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                                        conf = box.conf[0].cpu().numpy()
-                                        detections.append([x1, y1, x2, y2, conf])
-                            
-                            self.last_detections = detections
-                        except Exception as e:
-                            print(f"Error en detección YOLO para cámara {self.canal_id}: {e}")
-
-                    # Dibujar detecciones si no es canal 602 con zona activa
-                    if not (zona_activa and self.canal_id == zona_interes_id):
-                        for box in self.last_detections:
-                            x1, y1, x2, y2, conf = map(int, box)
-                            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                            cv2.putText(frame, "Persona Detectada", (x1, y1 - 10),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-                # Detección manos arriba solo si zona interés NO activa - Optimización: Reducir frecuencia
-                if manos_arriba_activa[self.canal_id] and not zona_activa and (self.frame_count % 3 == 0):
+                # --- Analíticas ---
+                if config_manager.is_analytics_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['yolo_frame_skip'] == 0):
                     try:
-                        frame, detectado = detectar_manos_arriba(frame, guardar_captura=True, output_path=str(output_folder))
+                        # Usar la GPU (device=0) para la inferencia de YOLO
+                        results = modelo_yolo(frame, device=0, verbose=False)
+                        detections = []
+                        for result in results:
+                            boxes = result.boxes
+                            for box in boxes:
+                                if int(box.cls[0]) == self.class_id:
+                                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                                    conf = box.conf[0].cpu().numpy()
+                                    detections.append([x1, y1, x2, y2, conf])
+                        self.last_detections = detections
+                    except Exception as e:
+                        print(f"Error en detección YOLO para cámara {self.canal_id}: {e}")
+                
+                for box in self.last_detections:
+                    x1, y1, x2, y2, conf = map(int, box)
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(frame, "Persona Detectada", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+                if config_manager.is_hands_up_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['hands_frame_skip'] == 0):
+                    try:
+                        frame, detectado = detectar_manos_arriba(frame, guardar_captura=True, output_path=str(config_manager.output_folder))
                         if detectado:
                             print(f"Canal {self.canal_id}: ¡Manos arriba detectadas!")
                     except Exception as e:
                         print(f"Error en detección manos arriba para cámara {self.canal_id}: {e}")
 
-                # Zona de interés SOLO canal 602
-                if self.canal_id == zona_interes_id and zona_activa:
+                if config_manager.is_face_detection_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['face_frame_skip'] == 0):
                     try:
-                        frame = procesar_zona_interes(frame, zona_interes_id, self.last_detections)
-                    except Exception as e:
-                        print(f"Error en zona de interés para cámara {self.canal_id}: {e}")
-
-                # Detección rostros - Optimización: Procesamiento asíncrono
-                if rostros_activa[self.canal_id] and (self.frame_count % 15 == 0):  # Cada 15 frames
-                    try:
-                        # Enviar frame a worker asíncrono sin bloquear el thread principal
                         if not rostros_queue.full():
                             frame_copy = frame.copy()
                             rostros_queue.put((self.canal_id, frame_copy), block=False)
                     except Exception as e:
                         print(f"Error al enviar frame para detección de rostros en cámara {self.canal_id}: {e}")
 
-                # Actualizar frame en tiempo real
-                frames[self.canal_id] = frame
+                config_manager.set_frame(self.canal_id, frame)
 
-                # Grabación - Optimización: Mejor manejo de errores
-                if recording_flags[self.canal_id]:
-                    if video_writers[self.canal_id] is None:
+                # --- Grabación y Snapshot ---
+                if config_manager.is_recording(self.canal_id):
+                    video_writer = config_manager.get_video_writer(self.canal_id)
+                    if video_writer is None:
                         try:
                             filename = datetime.now().strftime(f"{self.canal_id}_%Y%m%d_%H%M%S.avi")
-                            filepath = os.path.join(output_folder, filename)
+                            filepath = os.path.join(config_manager.output_folder, "videos", filename)
                             fourcc = cv2.VideoWriter_fourcc(*'XVID')
                             h, w = frame.shape[:2]
-                            video_writers[self.canal_id] = cv2.VideoWriter(filepath, fourcc, 30.0, (w, h))
+                            new_writer = cv2.VideoWriter(filepath, fourcc, 30.0, (w, h))
+                            config_manager.set_video_writer(self.canal_id, new_writer)
                             print(f"🎥 Comenzó grabación para cámara {self.canal_id}")
                         except Exception as e:
                             print(f"Error al iniciar grabación para cámara {self.canal_id}: {e}")
-
-                    if video_writers[self.canal_id] is not None:
+                    
+                    if config_manager.get_video_writer(self.canal_id) is not None:
                         try:
-                            video_writers[self.canal_id].write(frame)
+                            config_manager.get_video_writer(self.canal_id).write(frame)
                         except Exception as e:
                             print(f"Error al escribir frame en grabación para cámara {self.canal_id}: {e}")
                 else:
-                    if video_writers[self.canal_id] is not None:
+                    video_writer = config_manager.get_video_writer(self.canal_id)
+                    if video_writer is not None:
                         try:
-                            video_writers[self.canal_id].release()
-                            video_writers[self.canal_id] = None
+                            video_writer.release()
+                            config_manager.set_video_writer(self.canal_id, None)
                             print(f"Grabación detenida para cámara {self.canal_id}")
                         except Exception as e:
                             print(f"Error al detener grabación para cámara {self.canal_id}: {e}")
 
-                # Snapshot
-                if snapshot_flags[self.canal_id]:
+                if config_manager.is_snapshot_requested(self.canal_id):
                     try:
                         filename = datetime.now().strftime(f"{self.canal_id}_snapshot_%Y%m%d_%H%M%S.jpg")
-                        filepath = os.path.join(output_folder, filename)
+                        filepath = os.path.join(config_manager.output_folder, "captures", filename)
                         cv2.imwrite(filepath, frame)
                         print(f"📸 Snapshot guardado: {filepath}")
-                        snapshot_flags[self.canal_id] = False
+                        config_manager.clear_snapshot_request(self.canal_id)
                     except Exception as e:
                         print(f"Error al guardar snapshot para cámara {self.canal_id}: {e}")
-                        snapshot_flags[self.canal_id] = False
+                        config_manager.clear_snapshot_request(self.canal_id)
 
             cap.release()
-
-            if video_writers[self.canal_id] is not None:
+            video_writer = config_manager.get_video_writer(self.canal_id)
+            if video_writer is not None:
                 try:
-                    video_writers[self.canal_id].release()
-                    video_writers[self.canal_id] = None
+                    video_writer.release()
+                    config_manager.set_video_writer(self.canal_id, None)
                 except Exception as e:
                     print(f"Error al liberar video writer para cámara {self.canal_id}: {e}")
 
-# Función de limpieza al cerrar
 atexit.register(detener_rostros_worker)

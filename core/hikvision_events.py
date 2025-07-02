@@ -9,14 +9,13 @@ from pathlib import Path
 import time
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
-from config.settings import canales_originales
+from config import config_manager
 
-# Configuración de cámaras Hikvision - Todas las cámaras del sistema
+# La configuración ahora se lee directamente del config_manager importado
+# Generar la configuración de las cámaras dinámicamente desde el config_manager
 HIKVISION_CAMERAS = [
-    {"ip": "192.168.67.63", "username": "admin", "password": "nunoa2018", "canal": "101"},
-    {"ip": "192.168.67.63", "username": "admin", "password": "nunoa2018", "canal": "501"},
-    {"ip": "192.168.67.63", "username": "admin", "password": "nunoa2018", "canal": "601"},
-    {"ip": "192.168.67.63", "username": "admin", "password": "nunoa2018", "canal": "901"},
+    {"ip": "192.168.67.63", "username": "admin", "password": "nunoa2018", "canal": canal}
+    for canal in config_manager.canales_originales
 ]
 
 # Parámetros de conexión a Azure SQL

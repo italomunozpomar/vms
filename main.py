@@ -25,7 +25,7 @@ except Exception as e:
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
 from core.camera_thread import CamaraThread
-from config.settings import canales_originales, PERFORMANCE_CONFIG
+from config import config_manager  # Importar la instancia del ConfigManager
 from ui.window_grid import VMSGridWindow
 from core.hikvision_events import iniciar_eventos, detener_eventos
 
@@ -54,7 +54,8 @@ def start_camera_threads():
     """Inicia los hilos de cámara con manejo de errores"""
     camera_threads = {}
     
-    for canal in canales_originales:
+    # Usar la configuración desde el ConfigManager
+    for canal in config_manager.canales_originales:
         try:
             thread = CamaraThread(canal)
             thread.start()
@@ -91,15 +92,23 @@ def main():
         
         # Ejecutar aplicación
         logger.info("Ejecutando aplicación...")
-        return app.exec_()
+        exit_code = app.exec_()
+        
+        # Señalizar a los hilos que deben detenerse
+        config_manager.set_stop_flag()
+        detener_eventos()
+        logger.info("Aplicación finalizada.")
+        return exit_code
         
     except KeyboardInterrupt:
         logger.info("Aplicación interrumpida por el usuario")
-        detener_eventos()  # Detener eventos al salir
+        config_manager.set_stop_flag()
+        detener_eventos()
         return 0
     except Exception as e:
         logger.error(f"Error crítico en la aplicación: {e}")
-        detener_eventos()  # Detener eventos en caso de error
+        config_manager.set_stop_flag()
+        detener_eventos()
         return 1
 
 if __name__ == "__main__":
