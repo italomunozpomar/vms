@@ -6,7 +6,15 @@ from datetime import datetime
 import atexit
 import cv2
 from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtCore import pyqtSignal, QThread, Qt # Importar QThread y Qt
+from PyQt5.QtCore import pyqtSignal, QThread, Qt
+import collections # Importar collections para deque
+
+from config.database_manager import db_manager # Importar el gestor de la base de datos
+
+# Constantes para la grabación por evento
+BUFFER_SIZE_SECONDS = 5  # Cuántos segundos antes del evento se guardan
+POST_EVENT_RECORD_SECONDS = 10 # Cuántos segundos después del evento se graban
+EVENT_FPS = 15 # FPS para la grabación de eventos (puede ser menor para ahorrar espacio)
 
 from config import config_manager
 from core.yolo_model import modelo_yolo
@@ -117,6 +125,73 @@ def io_worker():
                     except Exception as e:
                         print(f"Error al detener grabación para cámara {canal_id}: {e}")
 
+            elif task_type == 'event_record':
+                # Obtener el VideoWriter específico para grabación por evento
+                event_video_writer = config_manager.get_event_video_writer(canal_id)
+                if event_video_writer is None:
+                    print(f"DEBUG: io_worker - Intentando iniciar VideoWriter para evento en cámara {canal_id}")
+                    try:
+                        # Crear la carpeta de destino si no existe
+                        event_recordings_path = os.path.join(config_manager.output_folder, "eventos", datetime.now().strftime("%Y-%m-%d"))
+                        os.makedirs(event_recordings_path, exist_ok=True)
+
+                        filename = datetime.now().strftime(f"{canal_id}_EVENT_%Y%m%d_%H%M%S.mp4")
+                        filepath = os.path.join(event_recordings_path, filename)
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v') # Usar mp4v para MP4
+                        h, w = frame.shape[:2]
+                        new_writer = cv2.VideoWriter(filepath, fourcc, EVENT_FPS, (w, h))
+                        
+                        if new_writer.isOpened():
+                            config_manager.set_event_video_writer(canal_id, new_writer)
+                            # Almacenar la ruta del archivo en config_manager para usarla al finalizar la grabación
+                            event_details = config_manager.get_event_recording_details(canal_id)
+                            if event_details:
+                                event_details['file_path'] = filepath
+                                config_manager.set_event_recording_details(canal_id, event_details)
+                            print(f"🎥 DEBUG: io_worker - VideoWriter iniciado exitosamente para cámara {canal_id}: {filepath}")
+                        else:
+                            print(f"ERROR: io_worker - No se pudo abrir VideoWriter para cámara {canal_id} en {filepath}")
+                            
+                    except Exception as e:
+                        print(f"ERROR: io_worker - Error al iniciar grabación de evento para cámara {canal_id}: {e}")
+                
+                if config_manager.get_event_video_writer(canal_id) is not None:
+                    try:
+                        config_manager.get_event_video_writer(canal_id).write(frame)
+                        # print(f"DEBUG: io_worker - Frame escrito para cámara {canal_id}")
+                    except Exception as e:
+                        print(f"ERROR: io_worker - Error al escribir frame en grabación de evento para cámara {canal_id}: {e}")
+
+            elif task_type == 'stop_event_record':
+                print(f"DEBUG: io_worker - Solicitud de detener grabación de evento para cámara {canal_id}")
+                event_video_writer = config_manager.get_event_video_writer(canal_id)
+                if event_video_writer is not None:
+                    try:
+                        event_video_writer.release()
+                        config_manager.set_event_video_writer(canal_id, None)
+                        print(f"DEBUG: io_worker - VideoWriter de evento liberado para cámara {canal_id}")
+
+                        # Registrar en la base de datos
+                        event_details = config_manager.get_event_recording_details(canal_id)
+                        if event_details:
+                            duration = config_manager.get_event_recording_state(canal_id)['requested_duration_seconds']
+                            print(f"DEBUG: io_worker - Intentando registrar evento en DB para cámara {canal_id} con detalles: {event_details}")
+                            db_manager.insert_event_recording(
+                                camera_id=canal_id,
+                                event_type=event_details['event_type'],
+                                event_description=event_details['event_description'],
+                                timestamp=event_details['timestamp'],
+                                file_path=event_details['file_path'],
+                                duration_seconds=duration
+                            )
+                            config_manager.clear_event_recording_details(canal_id)
+                            print(f"DEBUG: io_worker - Evento de grabación registrado en DB para cámara {canal_id}")
+                        else:
+                            print(f"ADVERTENCIA: io_worker - No se encontraron detalles del evento para registrar en DB para cámara {canal_id}")
+
+                    except Exception as e:
+                        print(f"ERROR: io_worker - Error al detener grabación de evento o registrar en DB para cámara {canal_id}: {e}")
+
             elif task_type == 'snapshot':
                 try:
                     filename = datetime.now().strftime(f"{canal_id}_snapshot_%Y%m%d_%H%M%S.jpg")
@@ -203,6 +278,10 @@ class CamaraThread(QThread): # Heredar de QThread
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = config_manager.PERFORMANCE_CONFIG['reconnect_attempts']
         self.reconnect_delay = config_manager.PERFORMANCE_CONFIG['reconnect_delay']
+        self.frame_buffer = collections.deque(maxlen=BUFFER_SIZE_SECONDS * EVENT_FPS) # Búfer para frames previos al evento
+        self.is_event_recording = False
+        self.event_recording_frames_left = 0
+        self.event_recording_writer = None # Para el VideoWriter específico de grabación por evento
 
     def run(self):
         while not config_manager.should_stop():
@@ -252,6 +331,27 @@ class CamaraThread(QThread): # Heredar de QThread
                 if time.time() - start_time >= 1.0:
                     fps_frame_count = 0
                     start_time = time.time()
+
+                # Añadir frame al búfer
+                self.frame_buffer.append(frame.copy())
+
+                # --- Lógica de Grabación por Evento ---
+                if self.is_event_recording:
+                    if self.event_recording_frames_left > 0:
+                        try:
+                            if not io_queue.full():
+                                io_queue.put({'type': 'event_record', 'canal_id': self.canal_id, 'frame': frame.copy()}, block=False)
+                                self.event_recording_frames_left -= 1
+                        except Exception as e:
+                            print(f"Error al enviar frame para grabación de evento en cámara {self.canal_id}: {e}")
+                    else:
+                        # Finalizar grabación por evento
+                        self.is_event_recording = False
+                        try:
+                            if not io_queue.full():
+                                io_queue.put({'type': 'stop_event_record', 'canal_id': self.canal_id, 'frame': None}, block=False)
+                        except Exception as e:
+                            print(f"Error al enviar señal de detener grabación de evento para cámara {self.canal_id}: {e}")
 
                 # --- Analíticas ---
                 if config_manager.is_analytics_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['yolo_frame_skip'] == 0):
@@ -323,7 +423,7 @@ class CamaraThread(QThread): # Heredar de QThread
                 # Emitir la señal con el QPixmap listo
                 self.frame_ready.emit(self.canal_id, pix_resized)
 
-                # --- Grabación y Snapshot ---
+                # --- Grabación Continua y Snapshot ---
                 if config_manager.is_recording(self.canal_id):
                     try:
                         if not io_queue.full():
@@ -339,6 +439,25 @@ class CamaraThread(QThread): # Heredar de QThread
                         except Exception as e:
                             print(f"Error al enviar señal de detener grabación para cámara {self.canal_id}: {e}")
 
+                # Lógica para la grabación por evento
+                event_state = config_manager.get_event_recording_state(self.canal_id)
+                if event_state and event_state['is_recording']:
+                    if event_state['frames_left'] > 0:
+                        try:
+                            if not io_queue.full():
+                                io_queue.put({'type': 'event_record', 'canal_id': self.canal_id, 'frame': frame.copy()}, block=False)
+                                config_manager.set_event_recording_state(self.canal_id, True, event_state['frames_left'] - 1, event_state['requested_duration_seconds'])
+                        except Exception as e:
+                            print(f"Error al enviar frame para grabación de evento en cámara {self.canal_id}: {e}")
+                    else:
+                        # Finalizar grabación por evento
+                        config_manager.set_event_recording_state(self.canal_id, False, 0, 0)
+                        try:
+                            if not io_queue.full():
+                                io_queue.put({'type': 'stop_event_record', 'canal_id': self.canal_id, 'frame': None}, block=False)
+                        except Exception as e:
+                            print(f"Error al enviar señal de detener grabación de evento para cámara {self.canal_id}: {e}")
+
                 if config_manager.is_snapshot_requested(self.canal_id):
                     try:
                         if not io_queue.full():
@@ -347,6 +466,10 @@ class CamaraThread(QThread): # Heredar de QThread
                         print(f"Error al enviar solicitud de snapshot para cámara {self.canal_id}: {e}")
 
             cap.release()
+            # Asegurarse de liberar cualquier VideoWriter activo al detener el hilo
+            if self.event_recording_writer is not None:
+                self.event_recording_writer.release()
+                self.event_recording_writer = None
             video_writer = config_manager.get_video_writer(self.canal_id)
             if video_writer is not None:
                 try:

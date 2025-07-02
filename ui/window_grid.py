@@ -11,6 +11,7 @@ import time # Importar el módulo time
 
 from config import config_manager
 from core.hikvision_events import register_event_callback, iniciar_eventos, detener_eventos
+from core.camera_thread import BUFFER_SIZE_SECONDS, POST_EVENT_RECORD_SECONDS # Importar constantes de duración
 
 
 from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon, QPainter
@@ -19,6 +20,8 @@ import time # Importar el módulo time
 
 from config import config_manager
 from core.hikvision_events import register_event_callback, iniciar_eventos, detener_eventos
+from core.camera_thread import BUFFER_SIZE_SECONDS, POST_EVENT_RECORD_SECONDS # Importar constantes de duración
+from ui.playback_panel import PlaybackPanel # Importar el nuevo panel de reproducción
 
 
 class CameraLabel(QLabel):
@@ -142,6 +145,10 @@ class VMSGridWindow(QWidget):
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
 
+        # Crear el splitter principal
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        main_layout.addWidget(self.main_splitter)
+
         left_panel = QWidget()
         left_layout = QVBoxLayout()
         left_panel.setLayout(left_layout)
@@ -155,13 +162,15 @@ class VMSGridWindow(QWidget):
         self.btn_analitica = QPushButton("  Detección Personas")
         self.btn_manos_arriba = QPushButton("  Manos Arriba")
         self.btn_rostros = QPushButton("  Detección Rostros")
+        self.btn_playback = QPushButton("  Reproducción") # Nuevo botón para reproducción
 
         buttons = {
             self.btn_record: ("media-record", "Iniciar/Detener grabación de la cámara seleccionada"),
             self.btn_snapshot: ("camera-photo", "Tomar una captura de la cámara seleccionada"),
             self.btn_analitica: ("user-identity", "Activar/Desactivar detección de personas (YOLO)"),
             self.btn_manos_arriba: ("edit-undo", "Activar/Desactivar detección de manos arriba"),
-            self.btn_rostros: ("face-smile", "Activar/Desactivar detección de rostros")
+            self.btn_rostros: ("face-smile", "Activar/Desactivar detección de rostros"),
+            self.btn_playback: ("media-playback-start", "Abrir/Cerrar panel de reproducción de grabaciones") # Tooltip para el nuevo botón
         }
 
         for btn, (icon, tooltip) in buttons.items():
@@ -199,19 +208,28 @@ class VMSGridWindow(QWidget):
         left_layout.addWidget(self.events_text)
 
         left_layout.addStretch()
-        main_layout.addWidget(left_panel)
+        self.main_splitter.addWidget(left_panel) # Añadir left_panel al splitter
 
         self.grid = QGridLayout()
         self.grid.setSpacing(4)
         grid_container = QWidget()
         grid_container.setLayout(self.grid)
-        main_layout.addWidget(grid_container)
+        self.main_splitter.addWidget(grid_container) # Añadir grid_container al splitter
+
+        # Panel de reproducción (inicialmente oculto)
+        self.playback_panel = PlaybackPanel()
+        self.main_splitter.addWidget(self.playback_panel)
+        self.playback_panel.hide() # Ocultar por defecto
+
+        # Establecer tamaños iniciales del splitter (opcional, ajusta según necesites)
+        self.main_splitter.setSizes([200, 800, 0]) # left_panel, grid_container, playback_panel
 
         self.btn_record.clicked.connect(self.toggle_grabacion)
         self.btn_snapshot.clicked.connect(self.tomar_snapshot)
         self.btn_analitica.clicked.connect(self.toggle_analitica)
         self.btn_manos_arriba.clicked.connect(self.toggle_manos_arriba)
         self.btn_rostros.clicked.connect(self.toggle_rostros)
+        self.btn_playback.clicked.connect(self.toggle_playback_panel) # Conectar el nuevo botón
 
         # Inicializar el estilo de los botones
         self._update_button_style(self.btn_record, False)
@@ -259,6 +277,9 @@ class VMSGridWindow(QWidget):
         
         if canal in self.labels:
             self.flash_camera_border(canal, event_type)
+            # Iniciar grabación de evento
+            total_record_duration = BUFFER_SIZE_SECONDS + POST_EVENT_RECORD_SECONDS
+            config_manager.start_event_recording(canal, event_type, event_desc, timestamp, total_record_duration)
 
     def flash_camera_border(self, canal, event_type):
         if canal not in self.labels: return
@@ -353,4 +374,14 @@ class VMSGridWindow(QWidget):
 
     def mostrar_grid(self):
         self.show()
+
+    def toggle_playback_panel(self):
+        if self.playback_panel.isVisible():
+            self.playback_panel.hide()
+            # Restaurar el tamaño original del splitter si es necesario
+            self.main_splitter.setSizes([200, self.width() - 200, 0])
+        else:
+            self.playback_panel.show()
+            # Ajustar el tamaño del splitter para mostrar el panel de reproducción
+            self.main_splitter.setSizes([200, int(self.width() * 0.6), int(self.width() * 0.2)]) # Ejemplo de distribución
 

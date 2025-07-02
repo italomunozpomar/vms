@@ -33,7 +33,8 @@ class ConfigManager:
         self.rtsp_base = "rtsp://admin:nunoa2018@192.168.67.63:554/Streaming/Channels/{}?tcp/"
         
         # --- Rutas y Carpetas ---
-        self.output_folder = Path(r"C:\Users\MXL2442MK2\Desktop\vms\output")
+        # Usar Path(__file__).parent.parent para obtener la ruta del directorio raíz del proyecto (vms)
+        self.output_folder = Path(__file__).parent.parent / "output"
         self._setup_output_directories()
 
         # --- Estado Dinámico (protegido por el lock) ---
@@ -45,6 +46,9 @@ class ConfigManager:
         self._rostros_activa = {canal: False for canal in self.canales_originales}
         self._snapshot_flags = {canal: False for canal in self.canales_originales}
         self._video_writers = {canal: None for canal in self.canales_originales}
+        self._event_video_writers = {canal: None for canal in self.canales_originales} # Nuevo para grabaciones de eventos
+        self._event_recording_states = {canal: {'is_recording': False, 'frames_left': 0, 'requested_duration_seconds': 0} for canal in self.canales_originales} # Nuevo estado de grabación por evento
+        self._event_recording_details = {canal: None for canal in self.canales_originales} # Para almacenar detalles del evento y filepath
         self._detener_hilos = False
 
     def _setup_output_directories(self):
@@ -102,6 +106,49 @@ class ConfigManager:
     def set_video_writer(self, canal_id, writer):
         with self._lock:
             self._video_writers[canal_id] = writer
+
+    def get_event_video_writer(self, canal_id):
+        with self._lock:
+            return self._event_video_writers.get(canal_id)
+
+    def set_event_video_writer(self, canal_id, writer):
+        with self._lock:
+            self._event_video_writers[canal_id] = writer
+
+    def get_event_recording_state(self, canal_id):
+        with self._lock:
+            return self._event_recording_states.get(canal_id)
+
+    def set_event_recording_state(self, canal_id, is_recording, frames_left, requested_duration_seconds):
+        with self._lock:
+            self._event_recording_states[canal_id] = {'is_recording': is_recording, 'frames_left': frames_left, 'requested_duration_seconds': requested_duration_seconds}
+
+    def set_event_recording_details(self, canal_id, details):
+        with self._lock:
+            self._event_recording_details[canal_id] = details
+
+    def get_event_recording_details(self, canal_id):
+        with self._lock:
+            return self._event_recording_details.get(canal_id)
+
+    def clear_event_recording_details(self, canal_id):
+        with self._lock:
+            if canal_id in self._event_recording_details:
+                self._event_recording_details[canal_id] = None
+
+    def start_event_recording(self, canal_id, event_type, event_description, timestamp, duration_seconds):
+        """Inicia una grabación de evento para la cámara especificada."""
+        from core.camera_thread import EVENT_FPS # Importar aquí para evitar circular imports
+        with self._lock:
+            frames_to_record = duration_seconds * EVENT_FPS
+            self._event_recording_states[canal_id] = {'is_recording': True, 'frames_left': frames_to_record, 'requested_duration_seconds': duration_seconds}
+            self._event_recording_details[canal_id] = {
+                'event_type': event_type,
+                'event_description': event_description,
+                'timestamp': timestamp,
+                'file_path': None # Se llenará en el io_worker
+            }
+            print(f"Solicitada grabación de evento para cámara {canal_id} por {duration_seconds} segundos ({frames_to_record} frames).")
 
     def is_hands_up_active(self, canal_id):
         with self._lock:
