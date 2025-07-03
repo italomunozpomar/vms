@@ -3,58 +3,50 @@ import mediapipe as mp
 import time
 from datetime import datetime
 
-pose = None
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 
-manos_arriba_start = None
-captura_realizada = False
+class ManosArribaDetector:
+    def __init__(self):
+        self.pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+        self.manos_arriba_start = None
+        self.captura_realizada = False
 
-def inicializar_pose():
-    global pose
-    if pose is None:
-        pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+    def detectar(self, frame, guardar_captura=True, output_path="./"):
+        h, w = frame.shape[:2]
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.pose.process(frame_rgb)
 
-def detectar_manos_arriba(frame, guardar_captura=True, output_path="./"):
-    global manos_arriba_start, captura_realizada
+        manos_arriba_detectado = False
 
-    inicializar_pose()
+        if results.pose_landmarks:
+            lm = results.pose_landmarks.landmark
 
-    h, w = frame.shape[:2]
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = pose.process(frame_rgb)
+            hombro_izq = lm[mp_pose.PoseLandmark.LEFT_SHOULDER]
+            hombro_der = lm[mp_pose.PoseLandmark.RIGHT_SHOULDER]
+            muneca_izq = lm[mp_pose.PoseLandmark.LEFT_WRIST]
+            muneca_der = lm[mp_pose.PoseLandmark.RIGHT_WRIST]
 
-    manos_arriba_detectado = False
+            hombros_y = (hombro_izq.y + hombro_der.y) / 2
 
-    if results.pose_landmarks:
-        lm = results.pose_landmarks.landmark
+            manos_arriba = (
+                muneca_izq.y < hombros_y and
+                muneca_der.y < hombros_y
+            )
 
-        hombro_izq = lm[mp_pose.PoseLandmark.LEFT_SHOULDER]
-        hombro_der = lm[mp_pose.PoseLandmark.RIGHT_SHOULDER]
-        muneca_izq = lm[mp_pose.PoseLandmark.LEFT_WRIST]
-        muneca_der = lm[mp_pose.PoseLandmark.RIGHT_WRIST]
+            if manos_arriba:
+                if self.manos_arriba_start is None:
+                    self.manos_arriba_start = time.time()
+                elif time.time() - self.manos_arriba_start >= 2 and not self.captura_realizada:
+                    if guardar_captura:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        ruta = f"{output_path}/captura_manos_arriba_{timestamp}.jpg"
+                        cv2.imwrite(ruta, frame)
+                        print(f" Captura tomada: {ruta}")
+                    self.captura_realizada = True
+                    manos_arriba_detectado = True
+            else:
+                self.manos_arriba_start = None
+                self.captura_realizada = False
 
-        px = lambda l: (int(l.x * w), int(l.y * h))
-        hombros_y = (hombro_izq.y + hombro_der.y) / 2
-
-        manos_arriba = (
-            muneca_izq.y < hombros_y and
-            muneca_der.y < hombros_y
-        )
-
-        if manos_arriba:
-            if manos_arriba_start is None:
-                manos_arriba_start = time.time()
-            elif time.time() - manos_arriba_start >= 2 and not captura_realizada:
-                if guardar_captura:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    ruta = f"{output_path}/captura_manos_arriba_{timestamp}.jpg"
-                    cv2.imwrite(ruta, frame)
-                    print(f" Captura tomada: {ruta}")
-                captura_realizada = True
-                manos_arriba_detectado = True
-        else:
-            manos_arriba_start = None
-            captura_realizada = False
-
-    return frame, manos_arriba_detectado
+        return frame, manos_arriba_detectado

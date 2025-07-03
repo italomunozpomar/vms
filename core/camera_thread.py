@@ -14,7 +14,7 @@ from config.database_manager import db_manager # Importar el gestor de la base d
 
 from config import config_manager
 from core.yolo_model import modelo_yolo
-from core.manos_arriba import detectar_manos_arriba
+from core.manos_arriba import ManosArribaDetector
 from core.deteccion_rostro import detectar_rostros
 
 # Cola para procesamiento asíncrono de rostros
@@ -58,6 +58,8 @@ def rostros_worker():
 def manos_arriba_worker():
     """Worker thread para procesar detección de manos arriba de forma asíncrona"""
     global manos_arriba_running
+    # Instancia única por worker (puedes cambiar a un dict por canal si es necesario)
+    detector = ManosArribaDetector()
     while manos_arriba_running:
         try:
             data = manos_arriba_queue.get(timeout=1)
@@ -67,7 +69,7 @@ def manos_arriba_worker():
             canal_id, frame_copy = data
             
             try:
-                frame_processed, detectado = detectar_manos_arriba(frame_copy, guardar_captura=True, output_path=str(config_manager.output_folder))
+                frame_processed, detectado = detector.detectar(frame_copy, guardar_captura=True, output_path=str(config_manager.output_folder))
                 if detectado:
                     print(f"Canal {canal_id}: ¡Manos arriba detectadas!")
             except Exception as e:
