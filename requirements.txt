@@ -9,3 +9,4 @@ requests
 qdarkstyle
 face_recognition
 scikit-learn
+av

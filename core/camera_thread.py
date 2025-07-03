@@ -4,7 +4,8 @@ import time
 import os
 from datetime import datetime
 import atexit
-import cv2
+import av
+import cv2  # Solo para VideoWriter, imwrite y utilidades de imagen
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import pyqtSignal, QThread, Qt
 import collections # Importar collections para deque
@@ -171,15 +172,15 @@ def io_worker():
                             # Calcular la duración real del video grabado
                             actual_duration = 0.0
                             if os.path.exists(file_path):
-                                temp_cap = cv2.VideoCapture(file_path)
-                                if temp_cap.isOpened():
-                                    total_frames = temp_cap.get(cv2.CAP_PROP_FRAME_COUNT)
-                                    fps = temp_cap.get(cv2.CAP_PROP_FPS)
-                                    if fps > 0: 
+                                try:
+                                    container = av.open(file_path)
+                                    total_frames = container.streams.video[0].frames
+                                    fps = float(container.streams.video[0].average_rate)
+                                    if fps > 0:
                                         actual_duration = total_frames / fps
-                                    temp_cap.release()
-                                else:
-                                    print(f"ADVERTENCIA: No se pudo abrir el archivo de video {file_path} para calcular la duración.")
+                                    container.close()
+                                except Exception as e:
+                                    print(f"ADVERTENCIA: No se pudo abrir el archivo de video {file_path} para calcular la duración con PyAV: {e}")
 
                             print(f"DEBUG: io_worker - Intentando registrar evento en DB para cámara {canal_id} con detalles: {event_details}, duración real: {actual_duration:.2f}s")
                             db_manager.insert_event_recording(
@@ -291,19 +292,15 @@ class CamaraThread(QThread): # Heredar de QThread
         self.last_event_record_time = 0
 
     def run(self):
+        import av
         while not config_manager.should_stop():
             url = config_manager.get_active_channel_url(self.canal_id)
             canal_actual = config_manager.get_current_active_channel(self.canal_id)
 
-            cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, config_manager.PERFORMANCE_CONFIG['buffer_size'])
-            cap.set(cv2.CAP_PROP_FPS, config_manager.PERFORMANCE_CONFIG['max_fps'])
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, config_manager.PERFORMANCE_CONFIG['frame_width'])
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config_manager.PERFORMANCE_CONFIG['frame_height'])
-            cap.open(url, cv2.CAP_FFMPEG)
-
-            if not cap.isOpened():
-                print(f"No se pudo abrir la cámara {canal_actual}")
+            try:
+                container = av.open(url)
+            except av.AVError as e:
+                print(f"No se pudo abrir la cámara {canal_actual} con PyAV: {e}")
                 self.reconnect_attempts += 1
                 if self.reconnect_attempts >= self.max_reconnect_attempts:
                     print(f"Máximo de intentos de reconexión alcanzado para cámara {canal_actual}")
@@ -312,47 +309,37 @@ class CamaraThread(QThread): # Heredar de QThread
                 time.sleep(self.reconnect_delay)
                 continue
 
-            print(f"Cámara {canal_actual} conectada")
-            self.reconnect_attempts = 0  # Resetear contador de intentos
-            
-            # Variables para cálculo de FPS
+            print(f"Cámara {canal_actual} conectada (PyAV)")
+            self.reconnect_attempts = 0
+
             start_time = time.time()
             fps_frame_count = 0
 
-            while not config_manager.should_stop():
-                if canal_actual != config_manager.get_current_active_channel(self.canal_id):
-                    cap.release()
+            for frame in container.decode(video=0):
+                if config_manager.should_stop():
                     break
 
-                ret, frame = cap.read()
-                if not ret:
-                    print(f"No se pudo leer frame de {canal_actual}, intentando reconectar...")
-                    cap.release()
-                    time.sleep(self.reconnect_delay)
-                    continue # Usar continue para reintentar la conexión en el bucle exterior
 
+                img_bgr = frame.to_ndarray(format="bgr24")
                 self.frame_count += 1
                 fps_frame_count += 1
 
-                # Cálculo de FPS (sin mostrar en consola)
                 if time.time() - start_time >= 1.0:
                     fps_frame_count = 0
                     start_time = time.time()
 
-                # Añadir frame al búfer
-                self.frame_buffer.append(frame.copy())
+                self.frame_buffer.append(img_bgr.copy())
 
                 # --- Lógica de Grabación por Evento ---
                 if self.is_event_recording:
                     if self.event_recording_frames_left > 0:
                         try:
                             if not io_queue.full():
-                                io_queue.put({'type': 'event_record', 'canal_id': self.canal_id, 'frame': frame.copy()}, block=False)
+                                io_queue.put({'type': 'event_record', 'canal_id': self.canal_id, 'frame': img_bgr.copy()}, block=False)
                                 self.event_recording_frames_left -= 1
                         except Exception as e:
                             print(f"Error al enviar frame para grabación de evento en cámara {self.canal_id}: {e}")
                     else:
-                        # Finalizar grabación por evento
                         self.is_event_recording = False
                         try:
                             if not io_queue.full():
@@ -363,33 +350,29 @@ class CamaraThread(QThread): # Heredar de QThread
                 # --- Analíticas ---
                 if config_manager.is_analytics_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['yolo_frame_skip'] == 0):
                     try:
-                        # Usar la GPU (device=0) para la inferencia de YOLO
-                        results = modelo_yolo(frame, device=0, verbose=False)
+                        results = modelo_yolo(img_bgr, device=0, verbose=False)
                         detections = []
                         for result in results:
                             boxes = result.boxes
-                                
                             for box in boxes:
                                 if int(box.cls[0]) == self.class_id:
                                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                                     conf = box.conf[0].cpu().numpy()
                                     detections.append([x1, y1, x2, y2, conf])
-                        # No se guarda en config_manager, solo se usa para dibujar
                         self.last_detections = detections
                     except Exception as e:
                         print(f"Error en detección YOLO para cámara {self.canal_id}: {e}")
-            
-                # Dibujar detecciones de YOLO en el frame (si hay analítica activa)
+
                 if config_manager.is_analytics_active(self.canal_id):
                     for box in self.last_detections:
                         x1, y1, x2, y2, conf = map(int, box)
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.putText(frame, "Persona Detectada", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                        cv2.rectangle(img_bgr, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        cv2.putText(img_bgr, "Persona Detectada", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
                 if config_manager.is_hands_up_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['hands_frame_skip'] == 0):
                     try:
                         if not manos_arriba_queue.full():
-                            frame_copy = frame.copy()
+                            frame_copy = img_bgr.copy()
                             manos_arriba_queue.put((self.canal_id, frame_copy), block=False)
                     except Exception as e:
                         print(f"Error al enviar frame para detección de manos arriba en cámara {self.canal_id}: {e}")
@@ -397,12 +380,11 @@ class CamaraThread(QThread): # Heredar de QThread
                 if config_manager.is_face_detection_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['face_frame_skip'] == 0):
                     try:
                         if not rostros_queue.full():
-                            frame_copy = frame.copy()
+                            frame_copy = img_bgr.copy()
                             rostros_queue.put((self.canal_id, frame_copy), block=False)
                     except Exception as e:
                         print(f"Error al enviar frame para detección de rostros en cámara {self.canal_id}: {e}")
 
-                # Añadir texto de estado al frame en el CamaraThread
                 texto = f"Cámara {self.canal_id}"
                 estados = []
                 if config_manager.is_recording(self.canal_id): estados.append("Grabando: ON")
@@ -413,31 +395,20 @@ class CamaraThread(QThread): # Heredar de QThread
                 if estados:
                     texto += " | " + " | ".join(estados)
 
-                
-
-                # Convertir a RGB en el CamaraThread
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-                # Crear QImage y QPixmap en el CamaraThread
+                rgb_frame = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
                 h, w, ch = rgb_frame.shape
                 bytes_per_line = ch * w
                 qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
                 pix = QPixmap.fromImage(qt_image)
-
-                # Pre-escalado rápido en el hilo de la cámara para reducir la carga en la UI
                 pix_resized = pix.scaled(640, 360, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-
-                # Emitir la señal con el QPixmap listo
                 self.frame_ready.emit(self.canal_id, pix_resized)
 
-                # --- Grabación Continua y Snapshot ---
                 if config_manager.is_recording(self.canal_id):
                     try:
                         if not io_queue.full():
-                            io_queue.put({'type': 'record', 'canal_id': self.canal_id, 'frame': frame.copy()}, block=False)
+                            io_queue.put({'type': 'record', 'canal_id': self.canal_id, 'frame': img_bgr.copy()}, block=False)
                     except Exception as e:
                         print(f"Error al enviar frame para grabación en cámara {self.canal_id}: {e}")
-                else:
                     # Si la grabación se detuvo, enviar una señal al worker de E/S para liberar el VideoWriter
                     if config_manager.get_video_writer(self.canal_id) is not None:
                         try:
@@ -447,13 +418,14 @@ class CamaraThread(QThread): # Heredar de QThread
                             print(f"Error al enviar señal de detener grabación para cámara {self.canal_id}: {e}")
 
                 # Lógica para la grabación por evento
+
                 event_state = config_manager.get_event_recording_state(self.canal_id)
                 if event_state and event_state['is_recording']:
                     # No necesitamos last_event_record_time aquí, config_manager maneja la duración
                     if event_state['frames_left'] > 0:
                         try:
                             if not io_queue.full():
-                                io_queue.put({'type': 'event_record', 'canal_id': self.canal_id, 'frame': frame.copy()}, block=False)
+                                io_queue.put({'type': 'event_record', 'canal_id': self.canal_id, 'frame': img_bgr.copy()}, block=False)
                                 config_manager.set_event_recording_state(self.canal_id, True, event_state['frames_left'] - 1, event_state['requested_duration_seconds'])
                         except Exception as e:
                             print(f"Error al enviar frame para grabación de evento en cámara {self.canal_id}: {e}")
@@ -469,11 +441,11 @@ class CamaraThread(QThread): # Heredar de QThread
                 if config_manager.is_snapshot_requested(self.canal_id):
                     try:
                         if not io_queue.full():
-                            io_queue.put({'type': 'snapshot', 'canal_id': self.canal_id, 'frame': frame.copy()}, block=False)
+                            io_queue.put({'type': 'snapshot', 'canal_id': self.canal_id, 'frame': img_bgr.copy()}, block=False)
                     except Exception as e:
                         print(f"Error al enviar solicitud de snapshot para cámara {self.canal_id}: {e}")
 
-            cap.release()
+            # cap.release() eliminado: ya no se usa OpenCV VideoCapture
             # Asegurarse de liberar cualquier VideoWriter activo al detener el hilo
             if self.event_recording_writer is not None:
                 self.event_recording_writer.release()
