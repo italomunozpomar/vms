@@ -13,6 +13,7 @@ class ManosArribaDetector:
         self.captura_realizada = False
 
     def detectar(self, frame, guardar_captura=True, output_path="./"):
+        import os
         h, w = frame.shape[:2]
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.pose.process(frame_rgb)
@@ -39,7 +40,8 @@ class ManosArribaDetector:
                     self.manos_arriba_start = time.time()
                 elif time.time() - self.manos_arriba_start >= 2 and not self.captura_realizada:
                     if guardar_captura:
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        os.makedirs(output_path, exist_ok=True)
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                         ruta = f"{output_path}/captura_manos_arriba_{timestamp}.jpg"
                         cv2.imwrite(ruta, frame)
                         print(f" Captura tomada: {ruta}")
@@ -48,5 +50,8 @@ class ManosArribaDetector:
             else:
                 self.manos_arriba_start = None
                 self.captura_realizada = False
+
+            # Dibuja los landmarks en el frame (opcional, útil para debug/visualización)
+            mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
         return frame, manos_arriba_detectado
