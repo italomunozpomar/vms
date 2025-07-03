@@ -7,3 +7,4 @@ numpy
 pyodbc
 requests
 qdarkstyle
+face_recognition

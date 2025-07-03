@@ -178,15 +178,13 @@ class VMSGridWindow(QWidget):
         self.btn_analitica = QPushButton("  Detección Personas")
         self.btn_manos_arriba = QPushButton("  Manos Arriba")
         self.btn_rostros = QPushButton("  Detección Rostros")
-        self.btn_playback = QPushButton("  Reproducción")
 
         buttons = {
             self.btn_record: ("media-record", "Iniciar/Detener grabación de la cámara seleccionada"),
             self.btn_snapshot: ("camera-photo", "Tomar una captura de la cámara seleccionada"),
             self.btn_analitica: ("user-identity", "Activar/Desactivar detección de personas (YOLO)"),
             self.btn_manos_arriba: ("edit-undo", "Activar/Desactivar detección de manos arriba"),
-            self.btn_rostros: ("face-smile", "Activar/Desactivar detección de rostros"),
-            self.btn_playback: ("media-playback-start", "Abrir panel de reproducción de grabaciones")
+            self.btn_rostros: ("face-smile", "Activar/Desactivar detección de rostros")
         }
 
         for btn, (icon, tooltip) in buttons.items():
@@ -249,7 +247,7 @@ class VMSGridWindow(QWidget):
         self.btn_analitica.clicked.connect(self.toggle_analitica)
         self.btn_manos_arriba.clicked.connect(self.toggle_manos_arriba)
         self.btn_rostros.clicked.connect(self.toggle_rostros)
-        self.btn_playback.clicked.connect(self.show_playback_tab)
+        
 
         # Inicializar el estilo de los botones
         self._update_button_style(self.btn_record, False)

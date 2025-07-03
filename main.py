@@ -73,6 +73,8 @@ def main():
         
         # Configurar aplicación
         app = setup_application()
+
+        
         
         # Iniciar hilos por cámara
         camera_threads = start_camera_threads()

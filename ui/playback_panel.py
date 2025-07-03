@@ -64,7 +64,7 @@ class PlaybackPanel(QWidget):
         self.video_player_label = QLabel("Seleccione una grabación para reproducir")
         self.video_player_label.setAlignment(Qt.AlignCenter)
         self.video_player_label.setStyleSheet("background-color: black; border: 1px solid #555;")
-        self.video_player_label.setMinimumSize(640, 360)
+        self.video_player_label.setFixedSize(640, 360)
         main_layout.addWidget(self.video_player_label)
 
         # Controles de reproducción
@@ -165,7 +165,7 @@ class PlaybackPanel(QWidget):
                 h, w, ch = rgb_image.shape
                 bytes_per_line = ch * w
                 convert_to_qt_format = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
-                p = convert_to_qt_format.scaled(self.video_player_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                p = convert_to_qt_format.scaled(self.video_player_label.size(), Qt.KeepAspectRatio, Qt.FastTransformation)
                 self.video_player_label.setPixmap(QPixmap.fromImage(p))
                 
                 current_frame = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))

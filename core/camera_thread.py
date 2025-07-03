@@ -404,7 +404,7 @@ class CamaraThread(QThread): # Heredar de QThread
                 if estados:
                     texto += " | " + " | ".join(estados)
 
-                cv2.putText(frame, texto, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+                
 
                 # Convertir a RGB en el CamaraThread
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
