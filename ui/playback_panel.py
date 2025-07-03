@@ -110,33 +110,11 @@ class PlaybackPanel(QWidget):
             self.results_table.setRowCount(0)
             self.delete_button.setEnabled(False)
             QMessageBox.information(self, "Vaciar Base de Datos", "Todos los registros han sido eliminados de la base de datos.")
-
-        # --- Reproductor de Video ---
-        self.video_player_label = QLabel("Seleccione una grabación para reproducir")
-        self.video_player_label.setAlignment(Qt.AlignCenter)
-        self.video_player_label.setStyleSheet("background-color: black; border: 1px solid #555;")
-        self.video_player_label.setFixedSize(640, 360)
-        main_layout.addWidget(self.video_player_label)
-
-        # Controles de reproducción
-        playback_controls_layout = QHBoxLayout()
-        main_layout.addLayout(playback_controls_layout)
-
-        self.play_button = QPushButton("Play")
-        self.play_button.clicked.connect(self.toggle_playback)
-        self.play_button.setEnabled(False)
-        playback_controls_layout.addWidget(self.play_button)
-
-        self.stop_button = QPushButton("Stop")
-        self.stop_button.clicked.connect(self.stop_playback)
-        self.stop_button.setEnabled(False)
-        playback_controls_layout.addWidget(self.stop_button)
-
-        self.progress_slider = QSlider(Qt.Horizontal)
-        self.progress_slider.setRange(0, 100)
-        self.progress_slider.sliderMoved.connect(self.set_playback_position)
-        self.progress_slider.setEnabled(False)
-        playback_controls_layout.addWidget(self.progress_slider)
+            # Solo resetear el texto del reproductor
+            self.video_player_label.setText("Seleccione una grabación para reproducir")
+            self.play_button.setEnabled(False)
+            self.stop_button.setEnabled(False)
+            self.progress_slider.setEnabled(False)
 
         self.time_label = QLabel("00:00 / 00:00")
         playback_controls_layout.addWidget(self.time_label)

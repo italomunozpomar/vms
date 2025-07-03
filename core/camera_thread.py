@@ -92,36 +92,50 @@ def io_worker():
             frame = task['frame']
 
             if task_type == 'record':
+                import av
                 video_writer = config_manager.get_video_writer(canal_id)
                 if video_writer is None:
                     try:
-                        filename = datetime.now().strftime(f"{canal_id}_%Y%m%d_%H%M%S.avi")
+                        filename = datetime.now().strftime(f"{canal_id}_%Y%m%d_%H%M%S.mp4")
                         filepath = os.path.join(config_manager.output_folder, "videos", filename)
-                        fourcc = cv2.VideoWriter_fourcc(*'XVID')
                         h, w = frame.shape[:2]
-                        new_writer = cv2.VideoWriter(filepath, fourcc, 30.0, (w, h))
-                        config_manager.set_video_writer(canal_id, new_writer)
-                        print(f"🎥 Comenzó grabación para cámara {canal_id}")
+                        container = av.open(filepath, mode='w')
+                        stream = container.add_stream('libx264', rate=25)
+                        stream.width = w
+                        stream.height = h
+                        stream.pix_fmt = 'yuv420p'
+                        config_manager.set_video_writer(canal_id, (container, stream))
+                        print(f"🎥 Comenzó grabación para cámara {canal_id} (PyAV MP4)")
                     except Exception as e:
-                        print(f"Error al iniciar grabación para cámara {canal_id}: {e}")
+                        print(f"Error al iniciar grabación para cámara {canal_id} (PyAV): {e}")
                 
-                if config_manager.get_video_writer(canal_id) is not None:
+                writer_tuple = config_manager.get_video_writer(canal_id)
+                if writer_tuple is not None:
                     try:
-                        config_manager.get_video_writer(canal_id).write(frame)
+                        container, stream = writer_tuple
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        video_frame = av.VideoFrame.from_ndarray(frame_rgb, format='rgb24')
+                        for packet in stream.encode(video_frame):
+                            container.mux(packet)
                     except Exception as e:
-                        print(f"Error al escribir frame en grabación para cámara {canal_id}: {e}")
+                        print(f"Error al escribir frame en grabación para cámara {canal_id} (PyAV): {e}")
             
             elif task_type == 'stop_record':
-                video_writer = config_manager.get_video_writer(canal_id)
-                if video_writer is not None:
+                writer_tuple = config_manager.get_video_writer(canal_id)
+                if writer_tuple is not None:
                     try:
-                        video_writer.release()
+                        container, stream = writer_tuple
+                        # Flush stream
+                        for packet in stream.encode():
+                            container.mux(packet)
+                        container.close()
                         config_manager.set_video_writer(canal_id, None)
-                        print(f"Grabación detenida para cámara {canal_id}")
+                        print(f"Grabación detenida para cámara {canal_id} (PyAV MP4)")
                     except Exception as e:
-                        print(f"Error al detener grabación para cámara {canal_id}: {e}")
+                        print(f"Error al detener grabación para cámara {canal_id} (PyAV): {e}")
 
             elif task_type == 'event_record':
+                import av
                 event_video_writer = config_manager.get_event_video_writer(canal_id)
                 if event_video_writer is None:
                     event_details = config_manager.get_event_recording_details(canal_id)
@@ -130,55 +144,58 @@ def io_worker():
                         continue
 
                     filepath = event_details['file_path']
-                    print(f"DEBUG: io_worker - Intentando iniciar VideoWriter para evento en '{filepath}'")
-                    
+                    print(f"DEBUG: io_worker - Intentando iniciar VideoWriter (PyAV) para evento en '{filepath}'")
                     try:
-                        # Asegurarse de que el directorio de la ruta existe
                         os.makedirs(os.path.dirname(filepath), exist_ok=True)
-
-                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                         h, w = frame.shape[:2]
-                        new_writer = cv2.VideoWriter(filepath, fourcc, config_manager.EVENT_FPS, (w, h))
-                        
-                        if new_writer.isOpened():
-                            config_manager.set_event_video_writer(canal_id, new_writer)
-                            print(f"🎥 DEBUG: io_worker - VideoWriter de evento iniciado para cámara {canal_id}")
-                        else:
-                            print(f"ERROR: io_worker - No se pudo abrir VideoWriter para cámara {canal_id} en {filepath}")
-                            
+                        container = av.open(filepath, mode='w')
+                        stream = container.add_stream('libx264', rate=config_manager.EVENT_FPS)
+                        stream.width = w
+                        stream.height = h
+                        stream.pix_fmt = 'yuv420p'
+                        config_manager.set_event_video_writer(canal_id, (container, stream))
+                        print(f"🎥 DEBUG: io_worker - VideoWriter de evento iniciado para cámara {canal_id} (PyAV MP4)")
                     except Exception as e:
-                        print(f"ERROR: io_worker - Error al iniciar grabación de evento para cámara {canal_id}: {e}")
-                
-                if config_manager.get_event_video_writer(canal_id) is not None:
+                        print(f"ERROR: io_worker - Error al iniciar grabación de evento para cámara {canal_id} (PyAV): {e}")
+                writer_tuple = config_manager.get_event_video_writer(canal_id)
+                if writer_tuple is not None:
                     try:
-                        config_manager.get_event_video_writer(canal_id).write(frame)
+                        container, stream = writer_tuple
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        video_frame = av.VideoFrame.from_ndarray(frame_rgb, format='rgb24')
+                        for packet in stream.encode(video_frame):
+                            container.mux(packet)
                     except Exception as e:
-                        print(f"ERROR: io_worker - Error al escribir frame en grabación de evento para cámara {canal_id}: {e}")
+                        print(f"ERROR: io_worker - Error al escribir frame en grabación de evento para cámara {canal_id} (PyAV): {e}")
 
             elif task_type == 'stop_event_record':
                 print(f"DEBUG: io_worker - Solicitud de detener grabación de evento para cámara {canal_id}")
-                event_video_writer = config_manager.get_event_video_writer(canal_id)
-                if event_video_writer is not None:
+                writer_tuple = config_manager.get_event_video_writer(canal_id)
+                if writer_tuple is not None:
                     try:
-                        event_video_writer.release()
+                        container, stream = writer_tuple
+                        # Flush stream
+                        for packet in stream.encode():
+                            container.mux(packet)
+                        container.close()
                         config_manager.set_event_video_writer(canal_id, None)
-                        print(f"DEBUG: io_worker - VideoWriter de evento liberado para cámara {canal_id}")
+                        print(f"DEBUG: io_worker - VideoWriter de evento liberado para cámara {canal_id} (PyAV MP4)")
 
                         # Registrar en la base de datos
                         event_details = config_manager.get_event_recording_details(canal_id)
                         if event_details and 'file_path' in event_details:
                             file_path = event_details['file_path']
-                            
                             # Calcular la duración real del video grabado
                             actual_duration = 0.0
                             if os.path.exists(file_path):
                                 try:
-                                    container = av.open(file_path)
-                                    total_frames = container.streams.video[0].frames
-                                    fps = float(container.streams.video[0].average_rate)
+                                    import av as av2
+                                    container2 = av2.open(file_path)
+                                    total_frames = container2.streams.video[0].frames
+                                    fps = float(container2.streams.video[0].average_rate)
                                     if fps > 0:
                                         actual_duration = total_frames / fps
-                                    container.close()
+                                    container2.close()
                                 except Exception as e:
                                     print(f"ADVERTENCIA: No se pudo abrir el archivo de video {file_path} para calcular la duración con PyAV: {e}")
 
@@ -197,7 +214,7 @@ def io_worker():
                             print(f"ADVERTENCIA: io_worker - No se encontraron detalles de grabación o file_path para el evento en cámara {canal_id}")
 
                     except Exception as e:
-                        print(f"ERROR: io_worker - Error al detener grabación de evento o registrar en DB para cámara {canal_id}: {e}")
+                        print(f"ERROR: io_worker - Error al detener grabación de evento o registrar en DB para cámara {canal_id} (PyAV): {e}")
 
             elif task_type == 'snapshot':
                 try:

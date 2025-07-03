@@ -45,7 +45,7 @@ def detectar_manos_arriba(frame, guardar_captura=True, output_path="./"):
         if manos_arriba:
             if manos_arriba_start is None:
                 manos_arriba_start = time.time()
-            elif time.time() - manos_arriba_start >= 3 and not captura_realizada:
+            elif time.time() - manos_arriba_start >= 2 and not captura_realizada:
                 if guardar_captura:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     ruta = f"{output_path}/captura_manos_arriba_{timestamp}.jpg"
