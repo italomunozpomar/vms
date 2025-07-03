@@ -11,11 +11,6 @@ import collections # Importar collections para deque
 
 from config.database_manager import db_manager # Importar el gestor de la base de datos
 
-# Constantes para la grabación por evento
-BUFFER_SIZE_SECONDS = 5  # Cuántos segundos antes del evento se guardan
-POST_EVENT_RECORD_SECONDS = 10 # Cuántos segundos después del evento se graban
-EVENT_FPS = 15 # FPS para la grabación de eventos (puede ser menor para ahorrar espacio)
-
 from config import config_manager
 from core.yolo_model import modelo_yolo
 from core.manos_arriba import detectar_manos_arriba
@@ -142,7 +137,7 @@ def io_worker():
 
                         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                         h, w = frame.shape[:2]
-                        new_writer = cv2.VideoWriter(filepath, fourcc, EVENT_FPS, (w, h))
+                        new_writer = cv2.VideoWriter(filepath, fourcc, config_manager.EVENT_FPS, (w, h))
                         
                         if new_writer.isOpened():
                             config_manager.set_event_video_writer(canal_id, new_writer)
@@ -170,21 +165,35 @@ def io_worker():
 
                         # Registrar en la base de datos
                         event_details = config_manager.get_event_recording_details(canal_id)
-                        if event_details:
-                            duration = config_manager.get_event_recording_state(canal_id)['requested_duration_seconds']
-                            print(f"DEBUG: io_worker - Intentando registrar evento en DB para cámara {canal_id} con detalles: {event_details}")
+                        if event_details and 'file_path' in event_details:
+                            file_path = event_details['file_path']
+                            
+                            # Calcular la duración real del video grabado
+                            actual_duration = 0.0
+                            if os.path.exists(file_path):
+                                temp_cap = cv2.VideoCapture(file_path)
+                                if temp_cap.isOpened():
+                                    total_frames = temp_cap.get(cv2.CAP_PROP_FRAME_COUNT)
+                                    fps = temp_cap.get(cv2.CAP_PROP_FPS)
+                                    if fps > 0: 
+                                        actual_duration = total_frames / fps
+                                    temp_cap.release()
+                                else:
+                                    print(f"ADVERTENCIA: No se pudo abrir el archivo de video {file_path} para calcular la duración.")
+
+                            print(f"DEBUG: io_worker - Intentando registrar evento en DB para cámara {canal_id} con detalles: {event_details}, duración real: {actual_duration:.2f}s")
                             db_manager.insert_event_recording(
                                 camera_id=canal_id,
                                 event_type=event_details['event_type'],
                                 event_description=event_details['event_description'],
                                 timestamp=event_details['timestamp'],
-                                file_path=event_details['file_path'],
-                                duration_seconds=duration
+                                file_path=file_path,
+                                duration_seconds=actual_duration
                             )
                             config_manager.clear_event_recording_details(canal_id)
                             print(f"DEBUG: io_worker - Evento de grabación registrado en DB para cámara {canal_id}")
                         else:
-                            print(f"ADVERTENCIA: io_worker - No se encontraron detalles del evento para registrar en DB para cámara {canal_id}")
+                            print(f"ADVERTENCIA: io_worker - No se encontraron detalles de grabación o file_path para el evento en cámara {canal_id}")
 
                     except Exception as e:
                         print(f"ERROR: io_worker - Error al detener grabación de evento o registrar en DB para cámara {canal_id}: {e}")
@@ -275,7 +284,7 @@ class CamaraThread(QThread): # Heredar de QThread
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = config_manager.PERFORMANCE_CONFIG['reconnect_attempts']
         self.reconnect_delay = config_manager.PERFORMANCE_CONFIG['reconnect_delay']
-        self.frame_buffer = collections.deque(maxlen=BUFFER_SIZE_SECONDS * EVENT_FPS) # Búfer para frames previos al evento
+        self.frame_buffer = collections.deque(maxlen=config_manager.PERFORMANCE_CONFIG['buffer_size'] * config_manager.EVENT_FPS) # Búfer para frames previos al evento
         self.is_event_recording = False
         self.event_recording_frames_left = 0
         self.event_recording_writer = None # Para el VideoWriter específico de grabación por evento
@@ -440,24 +449,22 @@ class CamaraThread(QThread): # Heredar de QThread
                 # Lógica para la grabación por evento
                 event_state = config_manager.get_event_recording_state(self.canal_id)
                 if event_state and event_state['is_recording']:
-                    current_time = time.time()
-                    if (current_time - self.last_event_record_time) >= (1.0 / EVENT_FPS):
-                        self.last_event_record_time = current_time
-                        if event_state['frames_left'] > 0:
-                            try:
-                                if not io_queue.full():
-                                    io_queue.put({'type': 'event_record', 'canal_id': self.canal_id, 'frame': frame.copy()}, block=False)
-                                    config_manager.set_event_recording_state(self.canal_id, True, event_state['frames_left'] - 1, event_state['requested_duration_seconds'])
-                            except Exception as e:
-                                print(f"Error al enviar frame para grabación de evento en cámara {self.canal_id}: {e}")
-                        else:
-                            # Finalizar grabación por evento
-                            config_manager.set_event_recording_state(self.canal_id, False, 0, 0)
-                            try:
-                                if not io_queue.full():
-                                    io_queue.put({'type': 'stop_event_record', 'canal_id': self.canal_id, 'frame': None}, block=False)
-                            except Exception as e:
-                                print(f"Error al enviar señal de detener grabación de evento para cámara {self.canal_id}: {e}")
+                    # No necesitamos last_event_record_time aquí, config_manager maneja la duración
+                    if event_state['frames_left'] > 0:
+                        try:
+                            if not io_queue.full():
+                                io_queue.put({'type': 'event_record', 'canal_id': self.canal_id, 'frame': frame.copy()}, block=False)
+                                config_manager.set_event_recording_state(self.canal_id, True, event_state['frames_left'] - 1, event_state['requested_duration_seconds'])
+                        except Exception as e:
+                            print(f"Error al enviar frame para grabación de evento en cámara {self.canal_id}: {e}")
+                    else:
+                        # Finalizar grabación por evento
+                        config_manager.set_event_recording_state(self.canal_id, False, 0, 0)
+                        try:
+                            if not io_queue.full():
+                                io_queue.put({'type': 'stop_event_record', 'canal_id': self.canal_id, 'frame': None}, block=False)
+                        except Exception as e:
+                            print(f"Error al enviar señal de detener grabación de evento para cámara {self.canal_id}: {e}")
 
                 if config_manager.is_snapshot_requested(self.canal_id):
                     try:

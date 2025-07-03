@@ -3,7 +3,7 @@ import cv2
 from datetime import datetime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QDateEdit, QTableWidget, QTableWidgetItem, QSlider, QHeaderView
+    QComboBox, QDateEdit, QTableWidget, QTableWidgetItem, QSlider, QHeaderView, QMessageBox
 )
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap
@@ -48,7 +48,18 @@ class PlaybackPanel(QWidget):
         self.search_button.clicked.connect(self.search_recordings)
         search_layout.addWidget(self.search_button)
 
+        self.delete_button = QPushButton("Eliminar Selección")
+        self.delete_button.clicked.connect(self.delete_selected_recordings)
+        self.delete_button.setEnabled(False) # Deshabilitado por defecto
+        search_layout.addWidget(self.delete_button)
+
+        self.clear_db_button = QPushButton("Vaciar Base de Datos")
+        self.clear_db_button.setStyleSheet("background-color: #d9534f; color: white;")
+        self.clear_db_button.clicked.connect(self.clear_database)
+        search_layout.addWidget(self.clear_db_button)
+
         search_layout.addStretch()
+
 
         # --- Tabla de Resultados ---
         self.results_table = QTableWidget()
@@ -90,22 +101,67 @@ class PlaybackPanel(QWidget):
         self.time_label = QLabel("00:00 / 00:00")
         playback_controls_layout.addWidget(self.time_label)
 
+    def clear_database(self):
+        reply = QMessageBox.question(self, "Vaciar Base de Datos",
+                                     "¿Está seguro de que desea eliminar TODOS los registros de grabaciones? Esta acción es irreversible.",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            db_manager.clear_all_event_recordings()
+            self.results_table.setRowCount(0)
+            self.delete_button.setEnabled(False)
+            QMessageBox.information(self, "Vaciar Base de Datos", "Todos los registros han sido eliminados de la base de datos.")
+
+        # --- Reproductor de Video ---
+        self.video_player_label = QLabel("Seleccione una grabación para reproducir")
+        self.video_player_label.setAlignment(Qt.AlignCenter)
+        self.video_player_label.setStyleSheet("background-color: black; border: 1px solid #555;")
+        self.video_player_label.setFixedSize(640, 360)
+        main_layout.addWidget(self.video_player_label)
+
+        # Controles de reproducción
+        playback_controls_layout = QHBoxLayout()
+        main_layout.addLayout(playback_controls_layout)
+
+        self.play_button = QPushButton("Play")
+        self.play_button.clicked.connect(self.toggle_playback)
+        self.play_button.setEnabled(False)
+        playback_controls_layout.addWidget(self.play_button)
+
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.clicked.connect(self.stop_playback)
+        self.stop_button.setEnabled(False)
+        playback_controls_layout.addWidget(self.stop_button)
+
+        self.progress_slider = QSlider(Qt.Horizontal)
+        self.progress_slider.setRange(0, 100)
+        self.progress_slider.sliderMoved.connect(self.set_playback_position)
+        self.progress_slider.setEnabled(False)
+        playback_controls_layout.addWidget(self.progress_slider)
+
+        self.time_label = QLabel("00:00 / 00:00")
+        playback_controls_layout.addWidget(self.time_label)
+
     def search_recordings(self):
         camera_id = self.camera_selector.currentText()
         start_date = self.date_start.date().toString("yyyy-MM-dd 00:00:00")
         end_date = self.date_end.date().toString("yyyy-MM-dd 23:59:59")
 
         recordings = db_manager.get_event_recordings(camera_id=camera_id, start_date=start_date, end_date=end_date)
+        print(f"DEBUG: search_recordings - Grabaciones recuperadas: {recordings}")
         
         self.results_table.setRowCount(len(recordings))
+        # Habilitar o deshabilitar el botón de eliminar según si hay grabaciones
+        self.delete_button.setEnabled(len(recordings) > 0)
+
         for row_idx, recording in enumerate(recordings):
             # id, camera_id, event_type, event_description, timestamp, file_path, duration_seconds, thumbnail_path
             self.results_table.setItem(row_idx, 0, QTableWidgetItem(recording[1])) # camera_id
             self.results_table.setItem(row_idx, 1, QTableWidgetItem(recording[2])) # event_type
             self.results_table.setItem(row_idx, 2, QTableWidgetItem(recording[3])) # event_description
             self.results_table.setItem(row_idx, 3, QTableWidgetItem(recording[4])) # timestamp
-            self.results_table.setItem(row_idx, 4, QTableWidgetItem(str(recording[6]))) # duration_seconds
+            self.results_table.setItem(row_idx, 4, QTableWidgetItem(f"{recording[6]:.2f}")) # duration_seconds (formateado)
             self.results_table.item(row_idx, 0).setData(Qt.UserRole, recording[5]) # Store file_path in UserRole
+            self.results_table.item(row_idx, 0).setData(Qt.UserRole + 1, recording[0]) # Store record_id in UserRole + 1
 
     def load_selected_recording(self, item):
         self.stop_playback()
@@ -213,6 +269,47 @@ class PlaybackPanel(QWidget):
             self.time_label.setText(f"{current_min:02d}:{current_sec:02d} / {total_min:02d}:{total_sec:02d}")
         else:
             self.time_label.setText("00:00 / 00:00")
+
+    def delete_selected_recordings(self):
+        selected_rows = self.results_table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.information(self, "Eliminar Grabaciones", "Por favor, seleccione al menos una grabación para eliminar.")
+            return
+
+        reply = QMessageBox.question(self, "Confirmar Eliminación",
+                                     f"¿Está seguro de que desea eliminar {len(selected_rows)} grabación(es) seleccionada(s)? Esta acción es irreversible.",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            # Eliminar de abajo hacia arriba para evitar problemas con los índices
+            for row_index in sorted([r.row() for r in selected_rows], reverse=True):
+                file_path = self.results_table.item(row_index, 0).data(Qt.UserRole)
+                record_id = self.results_table.item(row_index, 0).data(Qt.UserRole + 1)
+
+                # Eliminar archivo físico
+                if file_path and os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                        print(f"Archivo eliminado: {file_path}")
+                    except OSError as e:
+                        print(f"Error al eliminar archivo {file_path}: {e}")
+                else:
+                    print(f"Advertencia: Archivo no encontrado o ruta inválida: {file_path}")
+
+                # Eliminar de la base de datos
+                if record_id is not None:
+                    try:
+                        db_manager.delete_event_recording(record_id)
+                        print(f"Registro de DB eliminado para ID: {record_id}")
+                    except Exception as e:
+                        print(f"Error al eliminar registro de DB para ID {record_id}: {e}")
+                
+                # Eliminar de la tabla de la UI
+                self.results_table.removeRow(row_index)
+            
+            QMessageBox.information(self, "Eliminar Grabaciones", "Grabación(es) eliminada(s) correctamente.")
+            # Después de eliminar, re-evaluar si el botón de eliminar debe estar habilitado
+            self.delete_button.setEnabled(self.results_table.rowCount() > 0)
 
     def closeEvent(self, event):
         self.stop_playback()

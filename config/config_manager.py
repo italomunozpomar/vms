@@ -2,6 +2,7 @@
 import threading
 import numpy as np
 from pathlib import Path
+from datetime import datetime, timedelta
 
 class ConfigManager:
     """
@@ -16,7 +17,7 @@ class ConfigManager:
             'max_fps': 25,
             'frame_width': 1920,
             'frame_height': 1080,
-            'buffer_size': 5, # Aumentado de 1 a 3 para suavizar el video
+            'buffer_size': 10, # Aumentado para suavizar el video
             'reconnect_attempts': 5,
             'reconnect_delay': 2,
             'yolo_frame_skip': 5,
@@ -49,7 +50,16 @@ class ConfigManager:
         self._event_video_writers = {canal: None for canal in self.canales_originales} # Nuevo para grabaciones de eventos
         self._event_recording_states = {canal: {'is_recording': False, 'frames_left': 0, 'requested_duration_seconds': 0} for canal in self.canales_originales} # Nuevo estado de grabación por evento
         self._event_recording_details = {canal: None for canal in self.canales_originales} # Para almacenar detalles del evento y filepath
+        self._last_event_timestamp = {canal: None for canal in self.canales_originales} # Para controlar la extensión de la grabación por evento
+        self._last_event_trigger_time = {canal: datetime.min for canal in self.canales_originales} # Para controlar el cooldown de eventos
+        self._event_recording_start_time = {canal: None for canal in self.canales_originales} # Para el inicio real de la grabación de evento
         self._detener_hilos = False
+
+        # Constantes para el control de grabación de eventos
+        self.COOLDOWN_SECONDS = 5
+        self.MAX_EVENT_RECORD_SECONDS = 10
+        self.EVENT_FPS = 25 # FPS para la grabación de eventos (igual que la visualización y grabación normal)
+        self.POST_EVENT_RECORD_SECONDS = 10 # Cuántos segundos después del evento se graban
 
     def _setup_output_directories(self):
         """Crea las carpetas de salida si no existen."""
@@ -138,27 +148,52 @@ class ConfigManager:
 
     def start_event_recording(self, canal_id, event_type, event_description, timestamp, duration_seconds):
         """Inicia una grabación de evento para la cámara especificada."""
-        from core.camera_thread import EVENT_FPS # Importar aquí para evitar circular imports
-        from datetime import datetime
+        now = datetime.now()
 
         with self._lock:
-            # No iniciar una nueva grabación de evento si ya hay una en curso para esta cámara
+            # 1. Lógica de Cooldown
+            if (now - self._last_event_trigger_time[canal_id]).total_seconds() < self.COOLDOWN_SECONDS:
+                # print(f"DEBUG: Cooldown activo para cámara {canal_id}. Ignorando trigger.")
+                return
+            
+            self._last_event_trigger_time[canal_id] = now
+
+            # 2. Lógica de Extensión Controlada / Inicio de Nueva Grabación
             if self._event_recording_states[canal_id]['is_recording']:
-                # Opcional: se podría extender la grabación actual si se desea
+                # Si ya hay una grabación en curso, extender su duración hasta el máximo
+                elapsed_time = (now - self._event_recording_start_time[canal_id]).total_seconds()
+                remaining_time_from_start = self.MAX_EVENT_RECORD_SECONDS - elapsed_time
+
+                if remaining_time_from_start > 0:
+                    # Extender la duración restante hasta el máximo permitido
+                    frames_to_add = int(remaining_time_from_start * self.EVENT_FPS)
+                    self._event_recording_states[canal_id]['frames_left'] = frames_to_add
+                    self._event_recording_states[canal_id]['requested_duration_seconds'] = self.MAX_EVENT_RECORD_SECONDS
+                    
+                    # Actualizar los detalles del evento con la información del último evento que extendió la grabación
+                    self._event_recording_details[canal_id].update({
+                        'event_type': event_type,
+                        'event_description': event_description,
+                    })
+                    print(f"Grabación de evento para cámara {canal_id} extendida. Duración restante: {remaining_time_from_start:.2f}s (max {self.MAX_EVENT_RECORD_SECONDS}s).")
+                else:
+                    # La grabación ya excedió la duración máxima, dejar que termine
+                    # print(f"DEBUG: Grabación de cámara {canal_id} ya excedió el máximo. No se extiende.")
+                    pass
                 return
 
-            frames_to_record = duration_seconds * EVENT_FPS
+            # Si no hay grabación en curso, iniciar una nueva
+            self._event_recording_start_time[canal_id] = now
             
             # Generar la ruta del archivo de video aquí
-            now = datetime.now()
             event_date_folder = now.strftime('%Y-%m-%d')
             filename = f"{now.strftime('%Y%m%d_%H%M%S')}_EVENT_{canal_id}.mp4"
             file_path = self.output_folder / "eventos" / event_date_folder / filename
 
             self._event_recording_states[canal_id] = {
                 'is_recording': True, 
-                'frames_left': frames_to_record, 
-                'requested_duration_seconds': duration_seconds
+                'frames_left': self.MAX_EVENT_RECORD_SECONDS * self.EVENT_FPS, 
+                'requested_duration_seconds': self.MAX_EVENT_RECORD_SECONDS
             }
             self._event_recording_details[canal_id] = {
                 'event_type': event_type,
@@ -166,7 +201,7 @@ class ConfigManager:
                 'timestamp': timestamp,
                 'file_path': str(file_path) # Asignar la ruta completa como string
             }
-            print(f"Solicitada grabación de evento para cámara {canal_id} en '{file_path}' por {duration_seconds}s ({frames_to_record} frames).")
+            print(f"Solicitada grabación de evento para cámara {canal_id} en '{file_path}' por {self.MAX_EVENT_RECORD_SECONDS}s ({self.MAX_EVENT_RECORD_SECONDS * self.EVENT_FPS} frames).")
 
     def is_hands_up_active(self, canal_id):
         with self._lock:

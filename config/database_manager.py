@@ -3,6 +3,14 @@ import os
 from datetime import datetime
 
 class DatabaseManager:
+    def clear_all_event_recordings(self):
+        """Elimina todos los registros de la tabla event_recordings."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM event_recordings")
+        conn.commit()
+        conn.close()
+        print("Todos los registros de event_recordings han sido eliminados.")
     def __init__(self, db_path):
         self.db_path = db_path
         self._create_table()
@@ -60,6 +68,13 @@ class DatabaseManager:
         rows = cursor.fetchall()
         conn.close()
         return rows
+
+    def delete_event_recording(self, record_id):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM event_recordings WHERE id = ?", (record_id,))
+        conn.commit()
+        conn.close()
 
 # Instancia global del gestor de base de datos
 db_manager = DatabaseManager(os.path.join(os.path.dirname(__file__), 'vms_events.db'))

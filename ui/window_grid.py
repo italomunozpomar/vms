@@ -11,7 +11,7 @@ import time # Importar el módulo time
 
 from config import config_manager
 from core.hikvision_events import register_event_callback, iniciar_eventos, detener_eventos
-from core.camera_thread import BUFFER_SIZE_SECONDS, POST_EVENT_RECORD_SECONDS # Importar constantes de duración
+# from core.camera_thread import BUFFER_SIZE_SECONDS, POST_EVENT_RECORD_SECONDS # Ya no se importan de camera_thread, ahora vienen de config_manager
 
 
 from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon, QPainter
@@ -20,7 +20,7 @@ import time # Importar el módulo time
 
 from config import config_manager
 from core.hikvision_events import register_event_callback, iniciar_eventos, detener_eventos
-from core.camera_thread import BUFFER_SIZE_SECONDS, POST_EVENT_RECORD_SECONDS # Importar constantes de duración
+# from core.camera_thread import BUFFER_SIZE_SECONDS, POST_EVENT_RECORD_SECONDS # Ya no se importan de camera_thread, ahora vienen de config_manager
 from ui.playback_panel import PlaybackPanel # Importar el nuevo panel de reproducción
 
 
@@ -33,6 +33,22 @@ class CameraLabel(QLabel):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         self.setMouseTracking(True) # Habilitar seguimiento del ratón para efectos de hover
+
+        # Layout para organizar los elementos dentro del QLabel
+        self.internal_layout = QVBoxLayout(self)
+        self.internal_layout.setContentsMargins(5, 5, 5, 5)
+        self.internal_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+
+        # QLabel para el ID de la cámara
+        self.camera_id_label = QLabel(f"Cámara {self.canal_id}", self)
+        self.camera_id_label.setStyleSheet("color: white; font-weight: bold; background-color: rgba(0,0,0,100); padding: 2px;")
+        self.internal_layout.addWidget(self.camera_id_label)
+
+        # QLabel para el estado de las analíticas
+        self.analytics_status_label = QLabel("", self)
+        self.analytics_status_label.setStyleSheet("color: #00ff00; background-color: rgba(0,0,0,100); padding: 2px;")
+        self.internal_layout.addWidget(self.analytics_status_label)
+        self.internal_layout.addStretch() # Empujar los labels hacia arriba
 
         # Estilos base
         self.base_style = """
@@ -56,6 +72,9 @@ class CameraLabel(QLabel):
         self.event_flash_timer = QTimer(self)
         self.event_flash_timer.setSingleShot(True)
         self.event_flash_timer.timeout.connect(self._reset_style_after_flash)
+
+    def update_analytics_status(self, status_text):
+        self.analytics_status_label.setText(status_text)
 
     def set_selected(self, selected):
         self.is_selected = selected
@@ -88,14 +107,8 @@ class CameraLabel(QLabel):
         super().leaveEvent(event)
 
     def paintEvent(self, event):
+        # Ya no dibujamos el texto aquí, lo manejan los QLabels internos
         super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setPen(QColor(255, 255, 255)) # Color blanco para el texto
-        painter.setFont(self.font())
-        
-        # Dibujar el ID de la cámara en la esquina superior izquierda
-        text_rect = QRect(5, 5, self.width() - 10, 20)
-        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignTop, f"Cámara {self.canal_id}")
 
 
 class EventSignals(QObject):
@@ -266,6 +279,8 @@ class VMSGridWindow(QWidget):
             row = i // num_cols
             col = i % num_cols
             self.grid.addWidget(label, row, col)
+            # Inicializar el estado de las analíticas para cada cámara
+            self._update_camera_analytics_status(canal)
 
         for i in range(num_cols):
             self.grid.setColumnStretch(i, 1)
@@ -277,6 +292,19 @@ class VMSGridWindow(QWidget):
 
         register_event_callback(self.event_callback_wrapper)
         iniciar_eventos()
+
+    def _get_analytics_status_text(self, canal_id):
+        estados = []
+        if config_manager.is_recording(canal_id): estados.append("Grabando: ON")
+        if config_manager.is_analytics_active(canal_id): estados.append("Personas: ON")
+        if config_manager.is_hands_up_active(canal_id): estados.append("Manos: ON")
+        if config_manager.is_face_detection_active(canal_id): estados.append("Rostros: ON")
+        return " | ".join(estados) if estados else "Analíticas: OFF"
+
+    def _update_camera_analytics_status(self, canal_id):
+        if canal_id in self.labels:
+            status_text = self._get_analytics_status_text(canal_id)
+            self.labels[canal_id].update_analytics_status(status_text)
 
     def show_playback_tab(self):
         self.tab_widget.setCurrentWidget(self.playback_panel)
@@ -297,8 +325,7 @@ class VMSGridWindow(QWidget):
         
         if canal in self.labels:
             self.flash_camera_border(canal, event_type)
-            total_record_duration = BUFFER_SIZE_SECONDS + POST_EVENT_RECORD_SECONDS
-            config_manager.start_event_recording(canal, event_type, event_desc, timestamp, total_record_duration)
+            config_manager.start_event_recording(canal, event_type, event_desc, timestamp, config_manager.POST_EVENT_RECORD_SECONDS)
 
     def flash_camera_border(self, canal, event_type):
         if canal not in self.labels: return
@@ -316,6 +343,7 @@ class VMSGridWindow(QWidget):
     def update_frame(self, canal_id, pixmap):
         if canal_id in self.labels:
             label = self.labels[canal_id]
+            # Solo actualizar el pixmap, no el texto de estado
             pixmap_resized = pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             label.setPixmap(pixmap_resized)
 
@@ -324,6 +352,8 @@ class VMSGridWindow(QWidget):
             is_recording = config_manager.toggle_recording(canal)
             print(f"Grabación {'ON' if is_recording else 'OFF'} en cámara {canal}")
             self._update_button_style(self.btn_record, is_recording)
+            if canal in self.labels:
+                self.labels[canal].update_analytics_status(self._get_analytics_status_text(canal))
 
     def tomar_snapshot(self):
         for canal in self.selected_cameras:
@@ -335,18 +365,24 @@ class VMSGridWindow(QWidget):
             is_active = config_manager.toggle_analytics(canal)
             print(f"Detección de Personas {'ON' if is_active else 'OFF'} en cámara {canal}")
             self._update_button_style(self.btn_analitica, is_active)
+            if canal in self.labels:
+                self.labels[canal].update_analytics_status(self._get_analytics_status_text(canal))
 
     def toggle_manos_arriba(self):
         for canal in self.selected_cameras:
             is_active = config_manager.toggle_hands_up(canal)
             print(f"Detección Manos Arriba {'ON' if is_active else 'OFF'} en cámara {canal}")
             self._update_button_style(self.btn_manos_arriba, is_active)
+            if canal in self.labels:
+                self.labels[canal].update_analytics_status(self._get_analytics_status_text(canal))
 
     def toggle_rostros(self):
         for canal in self.selected_cameras:
             is_active = config_manager.toggle_face_detection(canal)
             print(f"Detección de Rostros {'ON' if is_active else 'OFF'} en cámara {canal}")
             self._update_button_style(self.btn_rostros, is_active)
+            if canal in self.labels:
+                self.labels[canal].update_analytics_status(self._get_analytics_status_text(canal))
 
     def _update_button_style(self, button, is_active):
         if is_active:
