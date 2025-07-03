@@ -139,16 +139,34 @@ class ConfigManager:
     def start_event_recording(self, canal_id, event_type, event_description, timestamp, duration_seconds):
         """Inicia una grabación de evento para la cámara especificada."""
         from core.camera_thread import EVENT_FPS # Importar aquí para evitar circular imports
+        from datetime import datetime
+
         with self._lock:
+            # No iniciar una nueva grabación de evento si ya hay una en curso para esta cámara
+            if self._event_recording_states[canal_id]['is_recording']:
+                # Opcional: se podría extender la grabación actual si se desea
+                return
+
             frames_to_record = duration_seconds * EVENT_FPS
-            self._event_recording_states[canal_id] = {'is_recording': True, 'frames_left': frames_to_record, 'requested_duration_seconds': duration_seconds}
+            
+            # Generar la ruta del archivo de video aquí
+            now = datetime.now()
+            event_date_folder = now.strftime('%Y-%m-%d')
+            filename = f"{now.strftime('%Y%m%d_%H%M%S')}_EVENT_{canal_id}.mp4"
+            file_path = self.output_folder / "eventos" / event_date_folder / filename
+
+            self._event_recording_states[canal_id] = {
+                'is_recording': True, 
+                'frames_left': frames_to_record, 
+                'requested_duration_seconds': duration_seconds
+            }
             self._event_recording_details[canal_id] = {
                 'event_type': event_type,
                 'event_description': event_description,
                 'timestamp': timestamp,
-                'file_path': None # Se llenará en el io_worker
+                'file_path': str(file_path) # Asignar la ruta completa como string
             }
-            print(f"Solicitada grabación de evento para cámara {canal_id} por {duration_seconds} segundos ({frames_to_record} frames).")
+            print(f"Solicitada grabación de evento para cámara {canal_id} en '{file_path}' por {duration_seconds}s ({frames_to_record} frames).")
 
     def is_hands_up_active(self, canal_id):
         with self._lock:

@@ -109,10 +109,17 @@ class PlaybackPanel(QWidget):
 
     def load_selected_recording(self, item):
         self.stop_playback()
-        self.current_video_path = item.data(Qt.UserRole)
         
-        if not os.path.exists(self.current_video_path):
-            self.video_player_label.setText("Error: Archivo no encontrado.")
+        # Obtener la ruta del video desde la primera columna de la fila seleccionada
+        row = item.row()
+        first_column_item = self.results_table.item(row, 0)
+        if not first_column_item:
+            return # No hacer nada si la primera celda no existe
+            
+        self.current_video_path = first_column_item.data(Qt.UserRole)
+        
+        if not self.current_video_path or not os.path.exists(self.current_video_path):
+            self.video_player_label.setText(f"Error: Archivo no encontrado.\n{self.current_video_path}")
             self.play_button.setEnabled(False)
             self.stop_button.setEnabled(False)
             self.progress_slider.setEnabled(False)
