@@ -161,25 +161,35 @@ class ConfigManager:
             # 2. Lógica de Extensión Controlada / Inicio de Nueva Grabación
             if self._event_recording_states[canal_id]['is_recording']:
                 # Si ya hay una grabación en curso, extender su duración hasta el máximo
-                elapsed_time = (now - self._event_recording_start_time[canal_id]).total_seconds()
-                remaining_time_from_start = self.MAX_EVENT_RECORD_SECONDS - elapsed_time
+                if self._event_recording_start_time[canal_id] is not None:
+                    elapsed_time = (now - self._event_recording_start_time[canal_id]).total_seconds()
+                    remaining_time_from_start = self.MAX_EVENT_RECORD_SECONDS - elapsed_time
 
-                if remaining_time_from_start > 0:
-                    # Extender la duración restante hasta el máximo permitido
-                    frames_to_add = int(remaining_time_from_start * self.EVENT_FPS)
-                    self._event_recording_states[canal_id]['frames_left'] = frames_to_add
-                    self._event_recording_states[canal_id]['requested_duration_seconds'] = self.MAX_EVENT_RECORD_SECONDS
-                    
-                    # Actualizar los detalles del evento con la información del último evento que extendió la grabación
-                    self._event_recording_details[canal_id].update({
-                        'event_type': event_type,
-                        'event_description': event_description,
-                    })
-                    print(f"Grabación de evento para cámara {canal_id} extendida. Duración restante: {remaining_time_from_start:.2f}s (max {self.MAX_EVENT_RECORD_SECONDS}s).")
-                else:
-                    # La grabación ya excedió la duración máxima, dejar que termine
-                    # print(f"DEBUG: Grabación de cámara {canal_id} ya excedió el máximo. No se extiende.")
-                    pass
+                    if remaining_time_from_start > 0:
+                        # Extender la duración restante hasta el máximo permitido
+                        frames_to_add = int(remaining_time_from_start * self.EVENT_FPS)
+                        self._event_recording_states[canal_id]['frames_left'] = frames_to_add
+                        self._event_recording_states[canal_id]['requested_duration_seconds'] = self.MAX_EVENT_RECORD_SECONDS
+                        
+                        # Actualizar los detalles del evento con la información del último evento que extendió la grabación
+                        if self._event_recording_details[canal_id] is not None:
+                            self._event_recording_details[canal_id].update({
+                                'event_type': event_type,
+                                'event_description': event_description,
+                            })
+                        else:
+                            # Si los detalles son None, crear un nuevo diccionario
+                            self._event_recording_details[canal_id] = {
+                                'event_type': event_type,
+                                'event_description': event_description,
+                                'timestamp': timestamp,
+                                'file_path': str(self.output_folder / "eventos" / now.strftime('%Y-%m-%d') / f"{now.strftime('%Y%m%d_%H%M%S')}_EVENT_{canal_id}.mp4")
+                            }
+                        print(f"Grabación de evento para cámara {canal_id} extendida. Duración restante: {remaining_time_from_start:.2f}s (max {self.MAX_EVENT_RECORD_SECONDS}s).")
+                    else:
+                        # La grabación ya excedió la duración máxima, dejar que termine
+                        # print(f"DEBUG: Grabación de cámara {canal_id} ya excedió el máximo. No se extiende.")
+                        pass
                 return
 
             # Si no hay grabación en curso, iniciar una nueva
