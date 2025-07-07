@@ -34,6 +34,19 @@ class PlaybackPanel(QWidget):
         self.camera_selector.addItems(config_manager.canales_originales)
         search_layout.addWidget(self.camera_selector)
 
+        search_layout.addWidget(QLabel("Tipo Evento:"))
+        self.event_type_selector = QComboBox()
+        self.event_type_selector.addItem("Todos los eventos")
+        # Añadir tipos de eventos comunes
+        self.event_type_selector.addItems(["motion", "linecrossing", "intrusion", "loitering", "face_detection", "hands_up"])
+        search_layout.addWidget(self.event_type_selector)
+        
+        # Botón para actualizar tipos de eventos desde la base de datos
+        self.refresh_event_types_button = QPushButton("🔄")
+        self.refresh_event_types_button.setToolTip("Actualizar tipos de eventos desde la base de datos")
+        self.refresh_event_types_button.clicked.connect(self.refresh_event_types)
+        search_layout.addWidget(self.refresh_event_types_button)
+
         search_layout.addWidget(QLabel("Desde:"))
         self.date_start = QDateEdit(calendarPopup=True)
         self.date_start.setDate(datetime.now().date())
@@ -101,6 +114,9 @@ class PlaybackPanel(QWidget):
         self.time_label = QLabel("00:00 / 00:00")
         playback_controls_layout.addWidget(self.time_label)
 
+        # Cargar tipos de eventos disponibles al inicializar
+        self.refresh_event_types()
+
     def clear_database(self):
         reply = QMessageBox.question(self, "Vaciar Base de Datos",
                                      "¿Está seguro de que desea eliminar TODOS los registros de grabaciones? Esta acción es irreversible.",
@@ -121,10 +137,15 @@ class PlaybackPanel(QWidget):
 
     def search_recordings(self):
         camera_id = self.camera_selector.currentText()
+        event_type = self.event_type_selector.currentText()
         start_date = self.date_start.date().toString("yyyy-MM-dd 00:00:00")
         end_date = self.date_end.date().toString("yyyy-MM-dd 23:59:59")
 
-        recordings = db_manager.get_event_recordings(camera_id=camera_id, start_date=start_date, end_date=end_date)
+        # Si se selecciona "Todos los eventos", no filtrar por tipo
+        if event_type == "Todos los eventos":
+            recordings = db_manager.get_event_recordings(camera_id=camera_id, start_date=start_date, end_date=end_date)
+        else:
+            recordings = db_manager.get_event_recordings(camera_id=camera_id, event_type=event_type, start_date=start_date, end_date=end_date)
         print(f"DEBUG: search_recordings - Grabaciones recuperadas: {recordings}")
         
         self.results_table.setRowCount(len(recordings))
@@ -288,6 +309,39 @@ class PlaybackPanel(QWidget):
             QMessageBox.information(self, "Eliminar Grabaciones", "Grabación(es) eliminada(s) correctamente.")
             # Después de eliminar, re-evaluar si el botón de eliminar debe estar habilitado
             self.delete_button.setEnabled(self.results_table.rowCount() > 0)
+
+    def refresh_event_types(self):
+        """Actualiza la lista de tipos de eventos disponibles desde la base de datos"""
+        try:
+            # Obtener todos los tipos de eventos únicos de la base de datos
+            all_recordings = db_manager.get_event_recordings()
+            event_types = set()
+            for recording in all_recordings:
+                if recording[2]:  # event_type está en el índice 2
+                    event_types.add(recording[2])
+            
+            # Guardar la selección actual
+            current_selection = self.event_type_selector.currentText()
+            
+            # Limpiar y repoblar el ComboBox
+            self.event_type_selector.clear()
+            self.event_type_selector.addItem("Todos los eventos")
+            
+            # Añadir los tipos de eventos encontrados en orden alfabético
+            for event_type in sorted(event_types):
+                self.event_type_selector.addItem(event_type)
+            
+            # Restaurar la selección si aún existe
+            index = self.event_type_selector.findText(current_selection)
+            if index >= 0:
+                self.event_type_selector.setCurrentIndex(index)
+            else:
+                self.event_type_selector.setCurrentIndex(0)  # "Todos los eventos"
+                
+            print(f"Tipos de eventos actualizados: {list(event_types)}")
+            
+        except Exception as e:
+            print(f"Error al actualizar tipos de eventos: {e}")
 
     def closeEvent(self, event):
         self.stop_playback()
