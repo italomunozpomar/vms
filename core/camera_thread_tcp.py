@@ -36,6 +36,7 @@ class CamaraThreadTCP(QThread):
                     data += packet
                 frame = pickle.loads(data)
                 img = cv2.imdecode(frame, 1)
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 self.frame_ready.emit(self.canal_id, img)
         except Exception as e:
             print(f"[TCP] Error en CamaraThreadTCP {self.canal_id}: {e}")
