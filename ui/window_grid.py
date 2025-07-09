@@ -1,56 +1,31 @@
 import os
 import cv2
+import time
 from datetime import datetime
-from PyQt5.QtWidgets import(
-    QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
-    QGridLayout, QSizePolicy, QFrame, QTextEdit, QSplitter, QTabWidget
+import numpy as np
+
+from PyQt5.QtWidgets import (
+    QWidget, QPushButton, QVBoxLayout, QHBoxLayout,
+    QGridLayout, QSizePolicy, QFrame, QTextEdit, QSplitter, QTabWidget, QLabel
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
-from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon
-import time # Importar el módulo time
-
-from config import config_manager
-from core.hikvision_events import register_event_callback, iniciar_eventos, detener_eventos
-# from core.camera_thread import BUFFER_SIZE_SECONDS, POST_EVENT_RECORD_SECONDS # Ya no se importan de camera_thread, ahora vienen de config_manager
-
-
-from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon, QPainter
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject, QRect
-import time # Importar el módulo time
+from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon, QPainter
 
+from ui.opengl_video_widget import OpenGLVideoWidget
+from ui.playback_panel import PlaybackPanel
 from config import config_manager
 from core.hikvision_events import register_event_callback, iniciar_eventos, detener_eventos
 # from core.camera_thread import BUFFER_SIZE_SECONDS, POST_EVENT_RECORD_SECONDS # Ya no se importan de camera_thread, ahora vienen de config_manager
-from ui.playback_panel import PlaybackPanel # Importar el nuevo panel de reproducción
 
 
-class CameraLabel(QLabel):
+class CameraLabel(QFrame):
     def __init__(self, canal_id, parent=None):
         super().__init__(parent)
         self.canal_id = canal_id
-        self.setAlignment(Qt.AlignCenter)
-        self.setFrameShape(QFrame.NoFrame)
+        self.setFrameShape(QFrame.StyledPanel)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        
-        self.setMouseTracking(True) # Habilitar seguimiento del ratón para efectos de hover
+        self.setMouseTracking(True)
 
-        # Layout para organizar los elementos dentro del QLabel
-        self.internal_layout = QVBoxLayout(self)
-        self.internal_layout.setContentsMargins(5, 5, 5, 5)
-        self.internal_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-
-        # QLabel para el ID de la cámara
-        self.camera_id_label = QLabel(f"Cámara {self.canal_id}", self)
-        self.camera_id_label.setStyleSheet("color: white; font-weight: bold; background-color: rgba(0,0,0,100); padding: 2px;")
-        self.internal_layout.addWidget(self.camera_id_label)
-
-        # QLabel para el estado de las analíticas
-        self.analytics_status_label = QLabel("", self)
-        self.analytics_status_label.setStyleSheet("color: #00ff00; background-color: rgba(0,0,0,100); padding: 2px;")
-        self.internal_layout.addWidget(self.analytics_status_label)
-        self.internal_layout.addStretch() # Empujar los labels hacia arriba
-
-        # Estilos base
         self.base_style = """
             background-color: #232323;
             border: 2px solid #222;
@@ -58,20 +33,52 @@ class CameraLabel(QLabel):
         """
         self.selected_style = """
             background-color: #232323;
-            border: 2px solid #00bfff; /* Azul brillante para selección */
+            border: 2px solid #00bfff;
             border-radius: 8px;
         """
         self.hover_style = """
             background-color: #282828;
-            border: 2px solid #555; /* Borde más claro al pasar el ratón */
+            border: 2px solid #555;
             border-radius: 8px;
         """
-        
         self.setStyleSheet(self.base_style)
         self.is_selected = False
         self.event_flash_timer = QTimer(self)
         self.event_flash_timer.setSingleShot(True)
         self.event_flash_timer.timeout.connect(self._reset_style_after_flash)
+
+        # Layout para que el OpenGLWidget ocupe todo el espacio
+        self.setContentsMargins(0, 0, 0, 0)
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+        self.layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+
+        self.opengl_widget = OpenGLVideoWidget(self)
+        self.opengl_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.layout.addWidget(self.opengl_widget, stretch=1)
+
+        # Overlays: solo se crean, no se agregan al layout
+        self.camera_id_label = QLabel(f"Cámara {self.canal_id}", self)
+        self.camera_id_label.setStyleSheet("color: white; font-weight: bold; background-color: rgba(0,0,0,100); padding: 2px;")
+        self.camera_id_label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.camera_id_label.setFixedHeight(22)
+        self.camera_id_label.raise_()
+
+        self.analytics_status_label = QLabel("", self)
+        self.analytics_status_label.setStyleSheet("color: #00ff00; background-color: rgba(0,0,0,100); padding: 2px;")
+        self.analytics_status_label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.analytics_status_label.setFixedHeight(20)
+        self.analytics_status_label.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Posicionar overlays: id arriba izquierda, status abajo izquierda
+        margin = 8
+        self.camera_id_label.move(margin, margin)
+        self.camera_id_label.resize(self.width() // 2, self.camera_id_label.height())
+        self.analytics_status_label.move(margin, self.height() - self.analytics_status_label.height() - margin)
+        self.analytics_status_label.resize(self.width() // 2, self.analytics_status_label.height())
 
     def update_analytics_status(self, status_text):
         self.analytics_status_label.setText(status_text)
@@ -85,7 +92,7 @@ class CameraLabel(QLabel):
         color = colors.get(event_type.lower(), "#ffffff")
         flash_style = f"background-color: #232323; border: 2px solid {color}; border-radius: 8px;"
         self.setStyleSheet(flash_style)
-        self.event_flash_timer.start(400) # Parpadea por 400ms
+        self.event_flash_timer.start(400)
 
     def _reset_style_after_flash(self):
         self._update_style()
@@ -106,9 +113,8 @@ class CameraLabel(QLabel):
             self.setStyleSheet(self.base_style)
         super().leaveEvent(event)
 
-    def paintEvent(self, event):
-        # Ya no dibujamos el texto aquí, lo manejan los QLabels internos
-        super().paintEvent(event)
+    def set_frame(self, frame: np.ndarray):
+        self.opengl_widget.set_frame(frame)
 
 
 class EventSignals(QObject):
@@ -340,12 +346,14 @@ class VMSGridWindow(QWidget):
             self.selected_cameras.add(canal)
             self.labels[canal].set_selected(True)
 
-    def update_frame(self, canal_id, pixmap):
+    def update_frame(self, canal_id, frame):
+        """
+        Recibe un frame en formato np.ndarray (RGB) directamente desde el hilo de la cámara.
+        Si tu hilo de cámara aún emite QPixmap, modifícalo para emitir np.ndarray (RGB) para máxima eficiencia.
+        """
         if canal_id in self.labels:
             label = self.labels[canal_id]
-            # Solo actualizar el pixmap, no el texto de estado
-            pixmap_resized = pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            label.setPixmap(pixmap_resized)
+            label.set_frame(frame)
 
     def toggle_grabacion(self):
         for canal in self.selected_cameras:

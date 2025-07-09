@@ -293,7 +293,7 @@ iniciar_manos_arriba_worker()
 iniciar_io_worker()
 
 class CamaraThread(QThread): # Heredar de QThread
-    frame_ready = pyqtSignal(str, QPixmap) # Señal para enviar el frame procesado a la UI
+    frame_ready = pyqtSignal(str, object) # Señal para enviar el frame procesado a la UI (np.ndarray RGB)
 
     def __init__(self, canal_id):
         super().__init__()
@@ -369,7 +369,9 @@ class CamaraThread(QThread): # Heredar de QThread
                 # --- Analíticas ---
                 if config_manager.is_analytics_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['yolo_frame_skip'] == 0):
                     try:
-                        results = modelo_yolo(img_bgr, device=0, verbose=False)
+                        # Usar el mismo device que el modelo YOLO
+                        from core.yolo_model import device as yolo_device
+                        results = modelo_yolo(img_bgr, device=yolo_device, verbose=False)
                         detections = []
                         for result in results:
                             boxes = result.boxes
@@ -415,12 +417,7 @@ class CamaraThread(QThread): # Heredar de QThread
                     texto += " | " + " | ".join(estados)
 
                 rgb_frame = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-                h, w, ch = rgb_frame.shape
-                bytes_per_line = ch * w
-                qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
-                pix = QPixmap.fromImage(qt_image)
-                pix_resized = pix.scaled(640, 360, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                self.frame_ready.emit(self.canal_id, pix_resized)
+                self.frame_ready.emit(self.canal_id, rgb_frame)
 
                 if config_manager.is_recording(self.canal_id):
                     try:

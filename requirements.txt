@@ -1,7 +1,8 @@
 PyQt5
 opencv-python
 mediapipe
-torch 2.5.1+cu121 torchvision --index-url https://download.pytorch.org/whl/cu121
+torch
+torchvision
 ultralytics
 numpy
 pyodbc
