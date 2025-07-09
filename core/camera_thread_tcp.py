@@ -9,17 +9,18 @@ import numpy as np
 class CamaraThreadTCP(QThread):
     frame_ready = pyqtSignal(str, object)  # Señal para enviar el frame procesado a la UI (np.ndarray RGB)
 
-    def __init__(self, canal_id, server_ip, server_port):
+    def __init__(self, canal_id, server_ip, camera_ports):
         super().__init__()
         self.canal_id = canal_id
         self.server_ip = server_ip
-        self.server_port = server_port
+        self.camera_ports = camera_ports
         self.running = True
 
     def run(self):
         try:
+            port = self.camera_ports[self.canal_id]
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect((self.server_ip, self.server_port))
+            s.connect((self.server_ip, port))
             while self.running:
                 # Recibe el tamaño del frame
                 packed_size = b''

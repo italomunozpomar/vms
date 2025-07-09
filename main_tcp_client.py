@@ -31,11 +31,19 @@ def setup_application():
     app.setStyleSheet(qdarkstyle.load_stylesheet_pyqt5())
     return app
 
+
+CAMERA_PORTS = {
+    '101': 9001,
+    '501': 9002,
+    '601': 9003,
+    '901': 9004,
+}
+
 def start_camera_threads():
     camera_threads = {}
     for canal in config_manager.canales_originales:
         try:
-            thread = CamaraThreadTCP(canal, SERVER_IP, SERVER_PORT)
+            thread = CamaraThreadTCP(canal, SERVER_IP, CAMERA_PORTS)
             thread.start()
             camera_threads[canal] = thread
             logger.info(f"[TCP] Hilo iniciado para cámara {canal}")
