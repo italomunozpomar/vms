@@ -1,13 +1,10 @@
-def client_handler(conn, addr):
-def main():
-
 import socket
 import threading
 import cv2
 import pickle
 import struct
 import numpy as np
-from config.config_manager import ConfigManager
+# from config.config_manager import ConfigManager
 
 # Configuración
 SERVER_IP = '0.0.0.0'  # Escucha en todas las interfaces
