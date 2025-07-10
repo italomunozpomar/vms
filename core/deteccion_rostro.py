@@ -7,6 +7,9 @@ import threading
 import queue
 import time
 
+# Importar administrador de GPUs
+from core.gpu_manager import gpu_manager, get_face_device, setup_opencv_gpu
+
 # URLs para descargar los archivos del modelo
 PROTO_TXT_URL = "https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt"
 MODEL_CAFFE_URL = "https://github.com/opencv/opencv_3rdparty/raw/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel"
@@ -30,9 +33,32 @@ def descargar_archivo(url, destino):
 descargar_archivo(PROTO_TXT_URL, PROTO_TXT_LOCAL)
 descargar_archivo(MODEL_CAFFE_URL, MODEL_CAFFE_LOCAL)
 
+# Configurar OpenCV para usar la GPU asignada a detección de rostros
+setup_opencv_gpu('face_detection')
+
 # Cargar el modelo DNN una sola vez (cache)
 print("Cargando modelo de detección de rostros...")
 net = cv2.dnn.readNetFromCaffe(PROTO_TXT_LOCAL, MODEL_CAFFE_LOCAL)
+
+# Configurar DNN para usar GPU si está disponible
+face_device = get_face_device()
+if face_device.type == 'cuda':
+    try:
+        gpu_id = int(face_device.index) if face_device.index is not None else 0
+        print(f"Intentando configurar OpenCV DNN para usar GPU {gpu_id}")
+        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+        print(f"✅ Modelo de rostros cargado en GPU {gpu_id}")
+    except Exception as e:
+        print(f"⚠️ Error configurando GPU para rostros: {e}")
+        print("🔄 Usando CPU como fallback")
+        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+else:
+    print("🔧 Configurando modelo de rostros para CPU")
+    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+
 print("Modelo de rostros cargado")
 
 # Conexión a SQL Server

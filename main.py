@@ -22,6 +22,15 @@ try:
 except Exception as e:
     logger.error(f"Error al inicializar MediaPipe: {e}")
 
+# ✅ Inicializar monitor de rendimiento
+try:
+    from core.performance_monitor import start_performance_monitoring, stop_performance_monitoring
+    logger.info("Monitor de rendimiento disponible")
+except Exception as e:
+    logger.warning(f"Monitor de rendimiento no disponible: {e}")
+    start_performance_monitoring = lambda: None
+    stop_performance_monitoring = lambda: None
+
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
 from core.camera_thread import CamaraThread
@@ -71,6 +80,10 @@ def main():
     try:
         logger.info("Iniciando VMS - Sistema de Monitoreo de Video")
         
+        # Iniciar monitor de rendimiento
+        start_performance_monitoring()
+        logger.info("Monitor de rendimiento iniciado")
+        
         # Configurar aplicación
         app = setup_application()
 
@@ -99,6 +112,7 @@ def main():
         # Señalizar a los hilos que deben detenerse
         config_manager.set_stop_flag()
         detener_eventos()
+        stop_performance_monitoring()
         logger.info("Aplicación finalizada.")
         return exit_code
         
@@ -106,11 +120,13 @@ def main():
         logger.info("Aplicación interrumpida por el usuario")
         config_manager.set_stop_flag()
         detener_eventos()
+        stop_performance_monitoring()
         return 0
     except Exception as e:
         logger.error(f"Error crítico en la aplicación: {e}")
         config_manager.set_stop_flag()
         detener_eventos()
+        stop_performance_monitoring()
         return 1
 
 if __name__ == "__main__":

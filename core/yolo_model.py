@@ -7,6 +7,9 @@ import torch.nn.modules.container
 import ultralytics.nn.modules  # Contiene Conv, C2f, Concat, SPPF, etc.
 from torch.serialization import add_safe_globals
 
+# Importar el administrador de GPUs
+from core.gpu_manager import gpu_manager, get_yolo_device
+
 # Agregar todas las clases personalizadas necesarias para deserialización segura
 add_safe_globals([
     DetectionModel,
@@ -17,28 +20,14 @@ add_safe_globals([
     ultralytics.nn.modules.SPPF
 ])
 
-# Optimización: Configurar dispositivo y cargar modelo con optimizaciones
-def get_best_device():
-    if torch.cuda.is_available():
-        # Verificar si hay suficiente memoria GPU
-        gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
-        print(f"CUDA disponible: {torch.cuda.get_device_name(0)} ({gpu_memory:.1f}GB)")
-        
-        # Configurar optimizaciones CUDA
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
-        
-        return torch.device('cuda')
-    elif torch.backends.mps.is_available():
-        print("MPS disponible (Apple Silicon)")
-        return torch.device('mps')
-    else:
-        print("Usando CPU")
-        return torch.device('cpu')
+# Obtener dispositivo asignado para YOLO desde el administrador de GPUs
+device = get_yolo_device()
+print(f"YOLO usando dispositivo: {device}")
 
-device = get_best_device()
-print(f"Usando dispositivo: {device}")
+# Optimizar GPU específica para YOLO
+if device.type == 'cuda':
+    gpu_id = int(device.index) if device.index is not None else 0
+    gpu_manager.optimize_gpu_settings(gpu_id)
 
 # Cargar modelo YOLO con optimizaciones
 modelo_yolo = YOLO("yolov8n.pt")

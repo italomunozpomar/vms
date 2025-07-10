@@ -1,19 +1,40 @@
 import cv2
 import mediapipe as mp
 import time
+import os
 from datetime import datetime
+
+# Importar administrador de GPUs
+from core.gpu_manager import gpu_manager, get_pose_device
 
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 
 class ManosArribaDetector:
     def __init__(self):
-        self.pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+        # Configurar MediaPipe para usar la GPU asignada si está disponible
+        pose_device = get_pose_device()
+        
+        # MediaPipe no usa PyTorch directamente, pero podemos configurar
+        # el procesamiento para que use la GPU asignada cuando sea posible
+        if pose_device.type == 'cuda':
+            gpu_id = int(pose_device.index) if pose_device.index is not None else 0
+            print(f"MediaPipe Pose configurado para GPU {gpu_id}")
+            # Configurar variables de entorno para MediaPipe
+            os.environ['MEDIAPIPE_DISABLE_GPU'] = '0'
+        else:
+            print("MediaPipe Pose usando CPU")
+            
+        self.pose = mp_pose.Pose(
+            min_detection_confidence=0.5, 
+            min_tracking_confidence=0.5,
+            model_complexity=1  # 0=lite, 1=full, 2=heavy
+        )
         self.manos_arriba_start = None
         self.captura_realizada = False
+        self.pose_device = pose_device
 
     def detectar(self, frame, guardar_captura=True, output_path="./", canal_id="unknown"):
-        import os
         h, w = frame.shape[:2]
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.pose.process(frame_rgb)

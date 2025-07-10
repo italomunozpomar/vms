@@ -5,6 +5,9 @@ import numpy as np
 import OpenGL.GL as gl
 import time
 
+# Importar administrador de GPUs para renderizado
+from core.gpu_manager import gpu_manager, get_rendering_device
+
 class OpenGLVideoWidget(QOpenGLWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -15,6 +18,10 @@ class OpenGLVideoWidget(QOpenGLWidget):
         self.fps_limit = 30  # Limitar FPS para mejor rendimiento
         self.frame_cache = None
         self.cache_valid = False
+        
+        # Configurar dispositivo de renderizado
+        self.rendering_device = get_rendering_device()
+        print(f"OpenGL Widget usando dispositivo: {self.rendering_device}")
         
         # Timer para actualización controlada
         self.update_timer = QTimer()
