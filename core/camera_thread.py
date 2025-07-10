@@ -309,6 +309,11 @@ class CamaraThread(QThread): # Heredar de QThread
         self.event_recording_frames_left = 0
         self.event_recording_writer = None # Para el VideoWriter específico de grabación por evento
         self.last_event_record_time = 0
+        
+        # Control de FPS para suavizar la visualización
+        self.target_fps = config_manager.PERFORMANCE_CONFIG['max_fps']
+        self.frame_interval = 1.0 / self.target_fps
+        self.last_frame_time = 0
 
     def run(self):
         import av
@@ -338,6 +343,15 @@ class CamaraThread(QThread): # Heredar de QThread
                 if config_manager.should_stop():
                     break
 
+                # Control de FPS RELAJADO para mejor fluidez visual
+                current_time = time.time()
+                time_since_last_frame = current_time - self.last_frame_time
+                
+                # Solo limitar si es excesivamente rápido (más de 60 FPS)
+                if time_since_last_frame < 0.016:  # 1/60 = 0.016 segundos
+                    continue  # Saltar solo si es muy rápido
+                
+                self.last_frame_time = current_time
 
                 img_bgr = frame.to_ndarray(format="bgr24")
                 self.frame_count += 1
@@ -366,8 +380,9 @@ class CamaraThread(QThread): # Heredar de QThread
                         except Exception as e:
                             print(f"Error al enviar señal de detener grabación de evento para cámara {self.canal_id}: {e}")
 
-                # --- Analíticas ---
-                if config_manager.is_analytics_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['yolo_frame_skip'] == 0):
+                # --- Analíticas con frame skip adaptativo ---
+                yolo_skip = config_manager.get_adaptive_frame_skip('yolo', self.canal_id)
+                if config_manager.is_analytics_active(self.canal_id) and (self.frame_count % yolo_skip == 0):
                     try:
                         # Usar el mismo device que el modelo YOLO
                         from core.yolo_model import device as yolo_device
@@ -411,7 +426,8 @@ class CamaraThread(QThread): # Heredar de QThread
                         cv2.rectangle(img_bgr, (x1, y1), (x2, y2), (0, 255, 0), 2)
                         cv2.putText(img_bgr, "Persona Detectada", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-                if config_manager.is_hands_up_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['hands_frame_skip'] == 0):
+                hands_skip = config_manager.get_adaptive_frame_skip('hands', self.canal_id)
+                if config_manager.is_hands_up_active(self.canal_id) and (self.frame_count % hands_skip == 0):
                     try:
                         if not manos_arriba_queue.full():
                             frame_copy = img_bgr.copy()
@@ -419,7 +435,8 @@ class CamaraThread(QThread): # Heredar de QThread
                     except Exception as e:
                         print(f"Error al enviar frame para detección de manos arriba en cámara {self.canal_id}: {e}")
 
-                if config_manager.is_face_detection_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['face_frame_skip'] == 0):
+                face_skip = config_manager.get_adaptive_frame_skip('face', self.canal_id)
+                if config_manager.is_face_detection_active(self.canal_id) and (self.frame_count % face_skip == 0):
                     try:
                         if not rostros_queue.full():
                             frame_copy = img_bgr.copy()
@@ -482,6 +499,8 @@ class CamaraThread(QThread): # Heredar de QThread
                             io_queue.put({'type': 'snapshot', 'canal_id': self.canal_id, 'frame': img_bgr.copy()}, block=False)
                     except Exception as e:
                         print(f"Error al enviar solicitud de snapshot para cámara {self.canal_id}: {e}")
+                
+                # Remover el sleep para máxima fluidez visual
 
             # cap.release() eliminado: ya no se usa OpenCV VideoCapture
             # Asegurarse de liberar cualquier VideoWriter activo al detener el hilo

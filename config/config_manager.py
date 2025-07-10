@@ -14,18 +14,18 @@ class ConfigManager:
 
         # --- Configuración Estática ---
         self.PERFORMANCE_CONFIG = {
-            'max_fps': 25,
+            'max_fps': 30,  # Aumentado a 30 para mejor fluidez
             'frame_width': 1920,
             'frame_height': 1080,
-            'buffer_size': 15,  # Aumentado para suavizar el video
+            'buffer_size': 15,  # Reducido para menor latencia
             'reconnect_attempts': 5,
             'reconnect_delay': 2,
-            'yolo_frame_skip': 5,  # Aumentado para reducir carga con múltiples analíticas
-            'hands_frame_skip': 8,  # Aumentado para mejor balance
-            'face_frame_skip': 12,  # Aumentado para reducir carga CPU/GPU
-            'max_queue_size': 5,  # Tamaño máximo de colas
-            'io_queue_size': 15,  # Aumentado para mejor rendimiento
-            'gpu_memory_fraction': 0.8,  # Fracción de memoria GPU a usar
+            'yolo_frame_skip': 3,  # Incrementado ligeramente para balance
+            'hands_frame_skip': 5,  # Incrementado para reducir carga
+            'face_frame_skip': 8,  # Incrementado para reducir carga
+            'max_queue_size': 6,  # Reducido para menor latencia
+            'io_queue_size': 15,  # Reducido para menor latencia
+            'gpu_memory_fraction': 0.8,  # Aumentado para mejor rendimiento
             'enable_gpu_preprocessing': True,  # Habilitar preprocesamiento en GPU
             'enable_frame_interpolation': False,  # Interpolación de frames
             'compression_quality': 85,  # Calidad de compresión para grabación
@@ -266,7 +266,7 @@ class ConfigManager:
     def get_adaptive_frame_skip(self, model_type, canal_id):
         """
         Calcula frame skip dinámico basado en la carga del sistema.
-        Aumenta el frame skip cuando hay múltiples analíticas activas.
+        SIMPLIFICADO para mejor fluidez visual.
         """
         with self._lock:
             # Contar analíticas activas para este canal
@@ -278,45 +278,27 @@ class ConfigManager:
             if self._rostros_activa.get(canal_id, False):
                 active_analytics += 1
             
-            # Contar total de analíticas activas en el sistema
-            total_active = 0
-            for canal in self.canales_originales:
-                if self._analitica_activa.get(canal, False):
-                    total_active += 1
-                if self._manos_arriba_activa.get(canal, False):
-                    total_active += 1
-                if self._rostros_activa.get(canal, False):
-                    total_active += 1
-            
-            # Frame skips base
+            # Frame skips base (SIMPLIFICADOS)
             base_skips = {
                 'yolo': self.PERFORMANCE_CONFIG['yolo_frame_skip'],
                 'hands': self.PERFORMANCE_CONFIG['hands_frame_skip'],
                 'face': self.PERFORMANCE_CONFIG['face_frame_skip']
             }
             
-            # Multiplicador basado en carga total del sistema
-            if total_active <= 3:  # 1 canal con todas las analíticas
-                multiplier = 1.0
-            elif total_active <= 6:  # 2 canales con analíticas
-                multiplier = 1.3
-            elif total_active <= 9:  # 3 canales con analíticas
-                multiplier = 1.6
-            else:  # 4+ canales con analíticas
-                multiplier = 2.0
-                
-            # Multiplicador adicional por analíticas en el mismo canal
+            # Multiplicador MUY CONSERVADOR
             if active_analytics >= 3:
-                multiplier *= 1.5
+                multiplier = 1.1  # Solo 10% de incremento
             elif active_analytics >= 2:
-                multiplier *= 1.2
+                multiplier = 1.05  # Solo 5% de incremento
+            else:
+                multiplier = 1.0  # Sin cambios
                 
             # Calcular frame skip adaptativo
-            adaptive_skip = int(base_skips.get(model_type, 5) * multiplier)
+            adaptive_skip = int(base_skips.get(model_type, 3) * multiplier)
             
-            # Límites mínimos y máximos
-            min_skip = 2
-            max_skip = 30
+            # Límites muy conservadores para mantener fluidez
+            min_skip = 1
+            max_skip = 10  # Máximo muy bajo
             
             return max(min_skip, min(max_skip, adaptive_skip))
 
