@@ -234,16 +234,16 @@ def escuchar_eventos_camara(cam):
                                 print(f"Error al notificar evento motion: {e}")
                             continue
                         
+
                         # Para otros eventos, procesar normalmente
                         print(f"Evento [{event_type}] en cam {cam['ip']} canal {channel} - Fecha: {event_time} - Desc: {event_desc}")
-                        
                         # Guardar en log
                         try:
                             with open(log_file, "a", encoding="utf-8") as logf:
                                 logf.write(f"{event_time} | cam: {cam['ip']} | canal: {channel} | tipo: {event_type} | desc: {event_desc} | bkgUrl: {bkg_url}\n")
                         except Exception as e:
                             print(f"Error al escribir en log: {e}")
-                        
+
                         # 1. Mapear canal real a lógico
                         canal_logico = mapear_canal_logico(channel)
                         canal_real = str(channel)
@@ -264,7 +264,6 @@ def escuchar_eventos_camara(cam):
                         simple_folder.mkdir(parents=True, exist_ok=True)
 
                         # 4. Nombre de archivo robusto
-                        # Ejemplo: cam_192_168_67_63_canalreal_1_canallogico_101_2025-06-30_14-42-27_linecrossing.jpg
                         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                         nombre_archivo = f"cam_{cam['ip'].replace('.', '_')}_canalreal_{canal_real}_canallogico_{canal_logico}_{timestamp}_{event_type_folder}.jpg"
                         ruta_imagen = str(simple_folder / nombre_archivo)
@@ -297,6 +296,19 @@ def escuchar_eventos_camara(cam):
                             notify_event_to_ui(cam['ip'], canal_logico, event_type, event_desc, ruta_imagen)
                         except Exception as e:
                             print(f"Error al notificar evento a UI: {e}")
+
+                        # 7. Disparar grabación de evento en el backend si corresponde
+                        from config import config_manager
+                        # Solo para eventos relevantes (puedes ajustar la lista)
+                        if event_type.lower() in ["linecrossing", "linedetection", "intrusion", "loitering", "motion", "vmd", "face", "facedetection"]:
+                            # El timestamp de la BD puede no ser igual al de la grabación, pero es suficiente para identificar el evento
+                            config_manager.start_event_recording(
+                                canal_logico,
+                                event_type,
+                                event_desc,
+                                event_time,
+                                config_manager.POST_EVENT_RECORD_SECONDS
+                            )
                         
                         buffer = ""
                     except ET.ParseError as e:
