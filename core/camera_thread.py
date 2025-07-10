@@ -432,13 +432,17 @@ class CamaraThread(QThread): # Heredar de QThread
                     except Exception as e:
                         print(f"Error al enviar frame para detección de rostros en cámara {self.canal_id}: {e}")
 
+
                 texto = f"Cámara {self.canal_id}"
                 estados = []
-                if config_manager.is_recording(self.canal_id): estados.append("Grabando: ON")
-                if config_manager.is_analytics_active(self.canal_id): estados.append("Personas: ON")
-                if config_manager.is_hands_up_active(self.canal_id): estados.append("Manos: ON")
-                if config_manager.is_face_detection_active(self.canal_id): estados.append("Rostros: ON")
-
+                if config_manager.is_recording(self.canal_id):
+                    estados.append("Grabando: ON")
+                if config_manager.is_analytics_active(self.canal_id):
+                    estados.append("Personas: ON")
+                if config_manager.is_hands_up_active(self.canal_id):
+                    estados.append("Manos: ON")
+                if config_manager.is_face_detection_active(self.canal_id):
+                    estados.append("Rostros: ON")
                 if estados:
                     texto += " | " + " | ".join(estados)
 
