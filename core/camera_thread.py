@@ -44,11 +44,13 @@ def rostros_worker():
             canal_id, frame_copy = data
             
             try:
+                print(f"[DEBUG][rostros_worker] Procesando frame para canal {canal_id}")
                 frame_processed = detectar_rostros(frame_copy)
+                print(f"[DEBUG][rostros_worker] Frame procesado para canal {canal_id}")
                 # Ya no se guarda en config_manager, se procesa y se emite
                 # config_manager.set_frame(canal_id, frame_processed)
             except Exception as e:
-                print(f"Error en worker de rostros para cámara {canal_id}: {e}")
+                print(f"[ERROR][rostros_worker] Error en worker de rostros para cámara {canal_id}: {e}")
                 
         except queue.Empty:
             continue
@@ -69,9 +71,10 @@ def manos_arriba_worker():
             canal_id, frame_copy = data
             
             try:
+                print(f"[DEBUG][manos_arriba_worker] Procesando frame para canal {canal_id}")
                 frame_processed, detectado = detector.detectar(frame_copy, guardar_captura=True, output_path=str(config_manager.output_folder))
                 if detectado:
-                    print(f"Canal {canal_id}: ¡Manos arriba detectadas!")
+                    print(f"[EVENTO][manos_arriba_worker] Canal {canal_id}: ¡Manos arriba detectadas!")
             except Exception as e:
                 print(f"Error en worker de manos arriba para cámara {canal_id}: {e}")
                 
@@ -93,6 +96,7 @@ def io_worker():
             canal_id = task['canal_id']
             frame = task['frame']
 
+            print(f"[DEBUG][io_worker] Recibido task: {task_type} para canal {canal_id}")
             if task_type == 'record':
                 import av
                 video_writer = config_manager.get_video_writer(canal_id)
@@ -114,18 +118,20 @@ def io_worker():
                 writer_tuple = config_manager.get_video_writer(canal_id)
                 if writer_tuple is not None:
                     try:
+                        print(f"[DEBUG][io_worker] Escribiendo frame en grabación para cámara {canal_id}")
                         container, stream = writer_tuple
                         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         video_frame = av.VideoFrame.from_ndarray(frame_rgb, format='rgb24')
                         for packet in stream.encode(video_frame):
                             container.mux(packet)
                     except Exception as e:
-                        print(f"Error al escribir frame en grabación para cámara {canal_id} (PyAV): {e}")
+                        print(f"[ERROR][io_worker] Error al escribir frame en grabación para cámara {canal_id} (PyAV): {e}")
             
             elif task_type == 'stop_record':
                 writer_tuple = config_manager.get_video_writer(canal_id)
                 if writer_tuple is not None:
                     try:
+                        print(f"[DEBUG][io_worker] Deteniendo grabación para cámara {canal_id}")
                         container, stream = writer_tuple
                         # Flush stream
                         for packet in stream.encode():
@@ -134,7 +140,7 @@ def io_worker():
                         config_manager.set_video_writer(canal_id, None)
                         print(f"Grabación detenida para cámara {canal_id} (PyAV MP4)")
                     except Exception as e:
-                        print(f"Error al detener grabación para cámara {canal_id} (PyAV): {e}")
+                        print(f"[ERROR][io_worker] Error al detener grabación para cámara {canal_id} (PyAV): {e}")
 
             elif task_type == 'event_record':
                 import av
@@ -142,11 +148,11 @@ def io_worker():
                 if event_video_writer is None:
                     event_details = config_manager.get_event_recording_details(canal_id)
                     if not event_details or not event_details.get('file_path'):
-                        print(f"ERROR: io_worker - No se encontraron detalles de grabación o file_path para el evento en cámara {canal_id}")
+                        print(f"[ERROR][io_worker] No se encontraron detalles de grabación o file_path para el evento en cámara {canal_id}")
                         continue
 
                     filepath = event_details['file_path']
-                    print(f"DEBUG: io_worker - Intentando iniciar VideoWriter (PyAV) para evento en '{filepath}'")
+                    print(f"[DEBUG][io_worker] Intentando iniciar VideoWriter (PyAV) para evento en '{filepath}'")
                     try:
                         os.makedirs(os.path.dirname(filepath), exist_ok=True)
                         h, w = frame.shape[:2]
@@ -156,22 +162,23 @@ def io_worker():
                         stream.height = h
                         stream.pix_fmt = 'yuv420p'
                         config_manager.set_event_video_writer(canal_id, (container, stream))
-                        print(f"🎥 DEBUG: io_worker - VideoWriter de evento iniciado para cámara {canal_id} (PyAV MP4)")
+                        print(f"[DEBUG][io_worker] VideoWriter de evento iniciado para cámara {canal_id} (PyAV MP4)")
                     except Exception as e:
-                        print(f"ERROR: io_worker - Error al iniciar grabación de evento para cámara {canal_id} (PyAV): {e}")
+                        print(f"[ERROR][io_worker] Error al iniciar grabación de evento para cámara {canal_id} (PyAV): {e}")
                 writer_tuple = config_manager.get_event_video_writer(canal_id)
                 if writer_tuple is not None:
                     try:
+                        print(f"[DEBUG][io_worker] Escribiendo frame en grabación de evento para cámara {canal_id}")
                         container, stream = writer_tuple
                         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         video_frame = av.VideoFrame.from_ndarray(frame_rgb, format='rgb24')
                         for packet in stream.encode(video_frame):
                             container.mux(packet)
                     except Exception as e:
-                        print(f"ERROR: io_worker - Error al escribir frame en grabación de evento para cámara {canal_id} (PyAV): {e}")
+                        print(f"[ERROR][io_worker] Error al escribir frame en grabación de evento para cámara {canal_id} (PyAV): {e}")
 
             elif task_type == 'stop_event_record':
-                print(f"DEBUG: io_worker - Solicitud de detener grabación de evento para cámara {canal_id}")
+                print(f"[DEBUG][io_worker] Solicitud de detener grabación de evento para cámara {canal_id}")
                 writer_tuple = config_manager.get_event_video_writer(canal_id)
                 if writer_tuple is not None:
                     try:
@@ -201,7 +208,7 @@ def io_worker():
                                 except Exception as e:
                                     print(f"ADVERTENCIA: No se pudo abrir el archivo de video {file_path} para calcular la duración con PyAV: {e}")
 
-                            print(f"DEBUG: io_worker - Intentando registrar evento en DB para cámara {canal_id} con detalles: {event_details}, duración real: {actual_duration:.2f}s")
+                            print(f"[DEBUG][io_worker] Intentando registrar evento en DB para cámara {canal_id} con detalles: {event_details}, duración real: {actual_duration:.2f}s")
                             db_manager.insert_event_recording(
                                 camera_id=canal_id,
                                 event_type=event_details['event_type'],
@@ -211,22 +218,21 @@ def io_worker():
                                 duration_seconds=actual_duration
                             )
                             config_manager.clear_event_recording_details(canal_id)
-                            print(f"DEBUG: io_worker - Evento de grabación registrado en DB para cámara {canal_id}")
+                            print(f"[DEBUG][io_worker] Evento de grabación registrado en DB para cámara {canal_id}")
                         else:
-                            print(f"ADVERTENCIA: io_worker - No se encontraron detalles de grabación o file_path para el evento en cámara {canal_id}")
-
+                            print(f"[WARN][io_worker] No se encontraron detalles de grabación o file_path para el evento en cámara {canal_id}")
                     except Exception as e:
-                        print(f"ERROR: io_worker - Error al detener grabación de evento o registrar en DB para cámara {canal_id} (PyAV): {e}")
+                        print(f"[ERROR][io_worker] Error al detener grabación de evento o registrar en DB para cámara {canal_id} (PyAV): {e}")
 
             elif task_type == 'snapshot':
                 try:
                     filename = datetime.now().strftime(f"{canal_id}_snapshot_%Y%m%d_%H%M%S.jpg")
                     filepath = os.path.join(config_manager.output_folder, "captures", filename)
                     cv2.imwrite(filepath, frame)
-                    print(f"📸 Snapshot guardado: {filepath}")
+                    print(f"[DEBUG][io_worker] 📸 Snapshot guardado: {filepath}")
                     config_manager.clear_snapshot_request(canal_id)
                 except Exception as e:
-                    print(f"Error al guardar snapshot para cámara {canal_id}: {e}")
+                    print(f"[ERROR][io_worker] Error al guardar snapshot para cámara {canal_id}: {e}")
                     config_manager.clear_snapshot_request(canal_id)
                 
         except queue.Empty:
@@ -309,26 +315,29 @@ class CamaraThread(QThread): # Heredar de QThread
         self.event_recording_frames_left = 0
         self.event_recording_writer = None # Para el VideoWriter específico de grabación por evento
         self.last_event_record_time = 0
+        print(f"[DEBUG][CamaraThread] Inicializada cámara {canal_id}")
 
     def run(self):
         import av
+        print(f"[DEBUG][CamaraThread] run() iniciado para cámara {self.canal_id}")
         while not config_manager.should_stop():
             url = config_manager.get_active_channel_url(self.canal_id)
             canal_actual = config_manager.get_current_active_channel(self.canal_id)
 
             try:
+                print(f"[DEBUG][CamaraThread] Intentando abrir cámara {canal_actual} (url: {url})")
                 container = av.open(url)
             except av.AVError as e:
-                print(f"No se pudo abrir la cámara {canal_actual} con PyAV: {e}")
+                print(f"[ERROR][CamaraThread] No se pudo abrir la cámara {canal_actual} con PyAV: {e}")
                 self.reconnect_attempts += 1
                 if self.reconnect_attempts >= self.max_reconnect_attempts:
-                    print(f"Máximo de intentos de reconexión alcanzado para cámara {canal_actual}")
+                    print(f"[WARN][CamaraThread] Máximo de intentos de reconexión alcanzado para cámara {canal_actual}")
                     time.sleep(5)
                     self.reconnect_attempts = 0
                 time.sleep(self.reconnect_delay)
                 continue
 
-            print(f"Cámara {canal_actual} conectada (PyAV)")
+            print(f"[DEBUG][CamaraThread] Cámara {canal_actual} conectada (PyAV)")
             self.reconnect_attempts = 0
 
             start_time = time.time()
@@ -365,6 +374,23 @@ class CamaraThread(QThread): # Heredar de QThread
                                 io_queue.put({'type': 'stop_event_record', 'canal_id': self.canal_id, 'frame': None}, block=False)
                         except Exception as e:
                             print(f"Error al enviar señal de detener grabación de evento para cámara {self.canal_id}: {e}")
+
+                # --- Lógica para disparar grabación de evento desde analítica (ejemplo: detección de persona) ---
+                # Puedes personalizar el trigger según la analítica que quieras grabar
+                if config_manager.is_analytics_active(self.canal_id):
+                    # Ejemplo: si hay detecciones de persona, dispara grabación de evento
+                    if hasattr(self, 'last_detections') and self.last_detections:
+                        # Solo dispara si no hay grabación de evento activa
+                        event_state = config_manager.get_event_recording_state(self.canal_id)
+                        if not event_state or not event_state['is_recording']:
+                            print(f"[EVENTO] Disparando grabación de evento por analítica en canal {self.canal_id}")
+                            config_manager.start_event_recording(
+                                self.canal_id,
+                                'person_detected',
+                                'Persona detectada por analítica',
+                                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                config_manager.POST_EVENT_RECORD_SECONDS
+                            )
 
                 # --- Analíticas ---
                 if config_manager.is_analytics_active(self.canal_id) and (self.frame_count % config_manager.PERFORMANCE_CONFIG['yolo_frame_skip'] == 0):
