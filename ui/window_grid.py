@@ -14,6 +14,7 @@ from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon, QPainter
 from ui.opengl_video_widget import OpenGLVideoWidget
 from ui.playback_panel import PlaybackPanel
 from config import config_manager
+from core.command_client import VMSCommandClient
 from core.hikvision_events import register_event_callback, iniciar_eventos, detener_eventos
 # from core.camera_thread import BUFFER_SIZE_SECONDS, POST_EVENT_RECORD_SECONDS # Ya no se importan de camera_thread, ahora vienen de config_manager
 
@@ -128,6 +129,9 @@ class VMSGridWindow(QWidget):
         self.setWindowTitle("VMS - Cámaras IP")
         self.camera_threads = camera_threads
         self.setMinimumSize(1280, 720) # Set a minimum size for the main window
+
+        # Configura el cliente de comandos TCP (ajusta IP si es necesario)
+        self.command_client = VMSCommandClient(server_ip="127.0.0.1", port=9100)
 
         self.event_signals = EventSignals()
         self.event_signals.event_detected.connect(self.on_event_detected)
@@ -357,40 +361,33 @@ class VMSGridWindow(QWidget):
 
     def toggle_grabacion(self):
         for canal in self.selected_cameras:
-            is_recording = config_manager.toggle_recording(canal)
-            print(f"Grabación {'ON' if is_recording else 'OFF'} en cámara {canal}")
-            self._update_button_style(self.btn_record, is_recording)
-            if canal in self.labels:
-                self.labels[canal].update_analytics_status(self._get_analytics_status_text(canal))
+            self.command_client.send_command('toggle_grabacion', canal)
+            print(f"Comando de grabación enviado para cámara {canal}")
 
     def tomar_snapshot(self):
         for canal in self.selected_cameras:
-            config_manager.take_snapshot(canal)
-            print(f"Snapshot solicitado para cámara {canal}")
+            self.command_client.send_command('snapshot', canal)
+            print(f"Comando de snapshot enviado para cámara {canal}")
 
     def toggle_analitica(self):
         for canal in self.selected_cameras:
-            is_active = config_manager.toggle_analytics(canal)
-            print(f"Detección de Personas {'ON' if is_active else 'OFF'} en cámara {canal}")
-            self._update_button_style(self.btn_analitica, is_active)
-            if canal in self.labels:
-                self.labels[canal].update_analytics_status(self._get_analytics_status_text(canal))
+            self.command_client.send_command('toggle_analitica', canal)
+            print(f"Comando de analítica enviado para cámara {canal}")
 
     def toggle_manos_arriba(self):
         for canal in self.selected_cameras:
-            is_active = config_manager.toggle_hands_up(canal)
-            print(f"Detección Manos Arriba {'ON' if is_active else 'OFF'} en cámara {canal}")
-            self._update_button_style(self.btn_manos_arriba, is_active)
-            if canal in self.labels:
-                self.labels[canal].update_analytics_status(self._get_analytics_status_text(canal))
+            self.command_client.send_command('toggle_manos_arriba', canal)
+            print(f"Comando de manos arriba enviado para cámara {canal}")
 
     def toggle_rostros(self):
         for canal in self.selected_cameras:
-            is_active = config_manager.toggle_face_detection(canal)
-            print(f"Detección de Rostros {'ON' if is_active else 'OFF'} en cámara {canal}")
-            self._update_button_style(self.btn_rostros, is_active)
-            if canal in self.labels:
-                self.labels[canal].update_analytics_status(self._get_analytics_status_text(canal))
+            self.command_client.send_command('toggle_rostros', canal)
+            print(f"Comando de rostros enviado para cámara {canal}")
+    def closeEvent(self, event):
+        # Cierra el cliente de comandos limpio
+        if hasattr(self, 'command_client'):
+            self.command_client.close()
+        super().closeEvent(event)
 
     def _update_button_style(self, button, is_active):
         if is_active:
