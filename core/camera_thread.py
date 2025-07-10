@@ -435,14 +435,27 @@ class CamaraThread(QThread): # Heredar de QThread
 
                 texto = f"Cámara {self.canal_id}"
                 estados = []
+                # DEBUG: Mostrar el estado de cada flag en consola
                 if config_manager.is_recording(self.canal_id):
                     estados.append("Grabando: ON")
+                    print(f"[ESTADO][{self.canal_id}] Grabación: ON")
+                else:
+                    print(f"[ESTADO][{self.canal_id}] Grabación: OFF")
                 if config_manager.is_analytics_active(self.canal_id):
                     estados.append("Personas: ON")
+                    print(f"[ESTADO][{self.canal_id}] Analítica: ON")
+                else:
+                    print(f"[ESTADO][{self.canal_id}] Analítica: OFF")
                 if config_manager.is_hands_up_active(self.canal_id):
                     estados.append("Manos: ON")
+                    print(f"[ESTADO][{self.canal_id}] Manos Arriba: ON")
+                else:
+                    print(f"[ESTADO][{self.canal_id}] Manos Arriba: OFF")
                 if config_manager.is_face_detection_active(self.canal_id):
                     estados.append("Rostros: ON")
+                    print(f"[ESTADO][{self.canal_id}] Rostros: ON")
+                else:
+                    print(f"[ESTADO][{self.canal_id}] Rostros: OFF")
                 if estados:
                     texto += " | " + " | ".join(estados)
 
