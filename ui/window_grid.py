@@ -130,8 +130,8 @@ class VMSGridWindow(QWidget):
         self.camera_threads = camera_threads
         self.setMinimumSize(1280, 720) # Set a minimum size for the main window
 
-        # Configura el cliente de comandos TCP (ajusta IP si es necesario)
-        self.command_client = VMSCommandClient(server_ip="127.0.0.1", port=9100)
+        # Configura el cliente de comandos TCP (IP del servidor VMS)
+        self.command_client = VMSCommandClient(server_ip="192.168.1.2", port=9100)
 
         self.event_signals = EventSignals()
         self.event_signals.event_detected.connect(self.on_event_detected)

@@ -1,3 +1,5 @@
 codigo para modificar algo de librerias o weas "venv\Scripts\python.exe -m pip install pyodbc"
 ejecutar en el entorno :venv\Scripts\python.exe main.py
 codigo para correr .bat :"run_vms.bat"
+
+Correr run_server.bat en server, correr run_client.bat en cliente
