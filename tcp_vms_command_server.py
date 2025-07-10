@@ -57,19 +57,23 @@ def process_commands():
         if action == 'toggle_rostros':
             # Alternar flag de rostros
             current = config_manager.is_face_detection_active(canal)
-            config_manager.toggle_face_detection(canal)
+            new_state = config_manager.toggle_face_detection(canal)
+            print(f"[CMD][rostros] Cámara {canal}: {'ON' if new_state else 'OFF'} (antes: {'ON' if current else 'OFF'})")
         elif action == 'toggle_analitica':
             # Alternar flag de analítica
             current = config_manager.is_analytics_active(canal)
-            config_manager.toggle_analytics(canal)
+            new_state = config_manager.toggle_analytics(canal)
+            print(f"[CMD][analitica] Cámara {canal}: {'ON' if new_state else 'OFF'} (antes: {'ON' if current else 'OFF'})")
         elif action == 'toggle_grabacion':
             # Alternar flag de grabación
             current = config_manager.is_recording(canal)
-            config_manager.toggle_recording(canal)
+            new_state = config_manager.toggle_recording(canal)
+            print(f"[CMD][grabacion] Cámara {canal}: {'ON' if new_state else 'OFF'} (antes: {'ON' if current else 'OFF'})")
         elif action == 'toggle_manos_arriba':
             # Alternar flag de manos arriba
             current = config_manager.is_hands_up_active(canal)
-            config_manager.toggle_hands_up(canal)
+            new_state = config_manager.toggle_hands_up(canal)
+            print(f"[CMD][manos_arriba] Cámara {canal}: {'ON' if new_state else 'OFF'} (antes: {'ON' if current else 'OFF'})")
         elif action == 'snapshot':
             config_manager.take_snapshot(canal)
         # Agrega más acciones según sea necesario
