@@ -18,17 +18,17 @@ from core.manos_arriba import ManosArribaDetector
 from core.deteccion_rostro import detectar_rostros
 
 # Cola para procesamiento asíncrono de rostros
-rostros_queue = queue.Queue(maxsize=5)
+rostros_queue = queue.Queue(maxsize=config_manager.PERFORMANCE_CONFIG['max_queue_size'])
 rostros_thread = None
 rostros_running = False
 
 # Cola para procesamiento asíncrono de manos arriba
-manos_arriba_queue = queue.Queue(maxsize=5)
+manos_arriba_queue = queue.Queue(maxsize=config_manager.PERFORMANCE_CONFIG['max_queue_size'])
 manos_arriba_thread = None
 manos_arriba_running = False
 
 # Cola para procesamiento asíncrono de grabación y snapshots
-io_queue = queue.Queue(maxsize=10)
+io_queue = queue.Queue(maxsize=config_manager.PERFORMANCE_CONFIG['io_queue_size'])
 io_thread = None
 io_running = False
 
@@ -69,7 +69,7 @@ def manos_arriba_worker():
             canal_id, frame_copy = data
             
             try:
-                frame_processed, detectado = detector.detectar(frame_copy, guardar_captura=True, output_path=str(config_manager.output_folder))
+                frame_processed, detectado = detector.detectar(frame_copy, guardar_captura=True, output_path=str(config_manager.output_folder), canal_id=canal_id)
                 if detectado:
                     print(f"Canal {canal_id}: ¡Manos arriba detectadas!")
             except Exception as e:
@@ -371,18 +371,39 @@ class CamaraThread(QThread): # Heredar de QThread
                     try:
                         # Usar el mismo device que el modelo YOLO
                         from core.yolo_model import device as yolo_device
-                        results = modelo_yolo(img_bgr, device=yolo_device, verbose=False)
+                        
+                        # Optimización: Redimensionar frame para YOLO si es necesario
+                        h, w = img_bgr.shape[:2]
+                        if h > 640 or w > 640:
+                            # Redimensionar manteniendo aspect ratio
+                            scale = min(640/w, 640/h)
+                            new_w, new_h = int(w * scale), int(h * scale)
+                            img_resized = cv2.resize(img_bgr, (new_w, new_h))
+                        else:
+                            img_resized = img_bgr
+                        
+                        # Ejecutar inferencia YOLO
+                        results = modelo_yolo(img_resized, device=yolo_device, verbose=False)
                         detections = []
+                        
                         for result in results:
                             boxes = result.boxes
-                            for box in boxes:
-                                if int(box.cls[0]) == self.class_id:
-                                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                                    conf = box.conf[0].cpu().numpy()
-                                    detections.append([x1, y1, x2, y2, conf])
+                            if boxes is not None:
+                                for box in boxes:
+                                    if int(box.cls[0]) == self.class_id:
+                                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                                        conf = box.conf[0].cpu().numpy()
+                                        
+                                        # Escalar coordenadas de vuelta al frame original
+                                        if h > 640 or w > 640:
+                                            x1, y1, x2, y2 = x1/scale, y1/scale, x2/scale, y2/scale
+                                        
+                                        detections.append([x1, y1, x2, y2, conf])
+                        
                         self.last_detections = detections
                     except Exception as e:
                         print(f"Error en detección YOLO para cámara {self.canal_id}: {e}")
+                        self.last_detections = []
 
                 if config_manager.is_analytics_active(self.canal_id):
                     for box in self.last_detections:
@@ -425,6 +446,7 @@ class CamaraThread(QThread): # Heredar de QThread
                             io_queue.put({'type': 'record', 'canal_id': self.canal_id, 'frame': img_bgr.copy()}, block=False)
                     except Exception as e:
                         print(f"Error al enviar frame para grabación en cámara {self.canal_id}: {e}")
+                else:
                     # Si la grabación se detuvo, enviar una señal al worker de E/S para liberar el VideoWriter
                     if config_manager.get_video_writer(self.canal_id) is not None:
                         try:

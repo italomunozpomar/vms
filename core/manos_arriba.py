@@ -12,7 +12,7 @@ class ManosArribaDetector:
         self.manos_arriba_start = None
         self.captura_realizada = False
 
-    def detectar(self, frame, guardar_captura=True, output_path="./"):
+    def detectar(self, frame, guardar_captura=True, output_path="./", canal_id="unknown"):
         import os
         h, w = frame.shape[:2]
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -40,11 +40,17 @@ class ManosArribaDetector:
                     self.manos_arriba_start = time.time()
                 elif time.time() - self.manos_arriba_start >= 2 and not self.captura_realizada:
                     if guardar_captura:
-                        os.makedirs(output_path, exist_ok=True)
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                        ruta = f"{output_path}/captura_manos_arriba_{timestamp}.jpg"
+                        # Crear carpeta específica para manos arriba
+                        manos_arriba_folder = os.path.join(output_path, "captures", "manos_arriba")
+                        os.makedirs(manos_arriba_folder, exist_ok=True)
+                        
+                        # Crear nombre de archivo más descriptivo
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        fecha = datetime.now().strftime("%Y-%m-%d")
+                        ruta = os.path.join(manos_arriba_folder, f"cam_{canal_id}_manos_arriba_{fecha}_{timestamp}.jpg")
+                        
                         cv2.imwrite(ruta, frame)
-                        print(f" Captura tomada: {ruta}")
+                        print(f"🙌 Captura manos arriba tomada: {ruta}")
                     self.captura_realizada = True
                     manos_arriba_detectado = True
             else:

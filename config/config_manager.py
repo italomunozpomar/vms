@@ -17,12 +17,18 @@ class ConfigManager:
             'max_fps': 25,
             'frame_width': 1920,
             'frame_height': 1080,
-            'buffer_size': 10, # Aumentado para suavizar el video
+            'buffer_size': 15,  # Aumentado para suavizar el video
             'reconnect_attempts': 5,
             'reconnect_delay': 2,
-            'yolo_frame_skip': 5,
-            'hands_frame_skip': 3,
-            'face_frame_skip': 10
+            'yolo_frame_skip': 3,  # Reducido para mejor detección
+            'hands_frame_skip': 5,  # Optimizado
+            'face_frame_skip': 8,  # Optimizado
+            'max_queue_size': 5,  # Tamaño máximo de colas
+            'io_queue_size': 15,  # Aumentado para mejor rendimiento
+            'gpu_memory_fraction': 0.8,  # Fracción de memoria GPU a usar
+            'enable_gpu_preprocessing': True,  # Habilitar preprocesamiento en GPU
+            'enable_frame_interpolation': False,  # Interpolación de frames
+            'compression_quality': 85,  # Calidad de compresión para grabación
         }
         self.canales_originales = ['101', '501', '601', '901']
         self.canales_baja = {
@@ -65,6 +71,8 @@ class ConfigManager:
         """Crea las carpetas de salida si no existen."""
         self.output_folder.mkdir(parents=True, exist_ok=True)
         (self.output_folder / "captures").mkdir(exist_ok=True)
+        (self.output_folder / "captures" / "manos_arriba").mkdir(exist_ok=True)  # Carpeta específica para manos arriba
+        (self.output_folder / "captures" / "linecrossing").mkdir(exist_ok=True)  # Mantener las existentes
         (self.output_folder / "rostros").mkdir(exist_ok=True)
         (self.output_folder / "videos").mkdir(exist_ok=True)
         (self.output_folder / "eventos").mkdir(exist_ok=True)
