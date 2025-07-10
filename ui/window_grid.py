@@ -329,13 +329,11 @@ class VMSGridWindow(QWidget):
         self.event_log.append(event_text)
         if len(self.event_log) > 50:
             self.event_log.pop(0)
-        
         self.events_text.setText("\n".join(reversed(self.event_log)))
         self.events_text.verticalScrollBar().setValue(self.events_text.verticalScrollBar().maximum())
-        
         if canal in self.labels:
             self.flash_camera_border(canal, event_type)
-            config_manager.start_event_recording(canal, event_type, event_desc, timestamp, config_manager.POST_EVENT_RECORD_SECONDS)
+        # El start_event_recording debe ejecutarse solo en el servidor, no en el cliente
 
     def flash_camera_border(self, canal, event_type):
         if canal not in self.labels: return
