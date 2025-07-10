@@ -5,6 +5,39 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 class ConfigManager:
+    def set_rostros_activa(self, canal_id, value: bool):
+        """Setea el flag de detección de rostros para el canal dado."""
+        with self._lock:
+            self._rostros_activa[canal_id] = value
+
+    def get_rostros_activa(self, canal_id):
+        """Obtiene el flag de detección de rostros para el canal dado."""
+        with self._lock:
+            return self._rostros_activa.get(canal_id, False)
+
+    def set_analitica_activa(self, canal_id, value: bool):
+        with self._lock:
+            self._analitica_activa[canal_id] = value
+
+    def get_analitica_activa(self, canal_id):
+        with self._lock:
+            return self._analitica_activa.get(canal_id, False)
+
+    def set_recording_flag(self, canal_id, value: bool):
+        with self._lock:
+            self._recording_flags[canal_id] = value
+
+    def get_recording_flag(self, canal_id):
+        with self._lock:
+            return self._recording_flags.get(canal_id, False)
+
+    def set_manos_arriba_activa(self, canal_id, value: bool):
+        with self._lock:
+            self._manos_arriba_activa[canal_id] = value
+
+    def get_manos_arriba_activa(self, canal_id):
+        with self._lock:
+            return self._manos_arriba_activa.get(canal_id, False)
     """
     Clase centralizada para gestionar la configuración y el estado de la aplicación.
     Utiliza un Lock para garantizar la seguridad en el acceso concurrente desde múltiples hilos.

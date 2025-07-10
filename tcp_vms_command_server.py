@@ -55,19 +55,23 @@ def process_commands():
         print(f"[CMD] Ejecutando acción: {action} en cámara {canal}")
         # Aquí se activa/desactiva la analítica, grabación, etc. usando config_manager
         if action == 'toggle_rostros':
-            current = config_manager.get_rostros_activa(canal)
-            config_manager.set_rostros_activa(canal, not current)
+            # Alternar flag de rostros
+            current = config_manager.is_face_detection_active(canal)
+            config_manager.toggle_face_detection(canal)
         elif action == 'toggle_analitica':
-            current = config_manager.get_analitica_activa(canal)
-            config_manager.set_analitica_activa(canal, not current)
+            # Alternar flag de analítica
+            current = config_manager.is_analytics_active(canal)
+            config_manager.toggle_analytics(canal)
         elif action == 'toggle_grabacion':
-            current = config_manager.get_recording_flag(canal)
-            config_manager.set_recording_flag(canal, not current)
+            # Alternar flag de grabación
+            current = config_manager.is_recording(canal)
+            config_manager.toggle_recording(canal)
         elif action == 'toggle_manos_arriba':
-            current = config_manager.get_manos_arriba_activa(canal)
-            config_manager.set_manos_arriba_activa(canal, not current)
+            # Alternar flag de manos arriba
+            current = config_manager.is_hands_up_active(canal)
+            config_manager.toggle_hands_up(canal)
         elif action == 'snapshot':
-            config_manager.set_snapshot_flag(canal, True)
+            config_manager.take_snapshot(canal)
         # Agrega más acciones según sea necesario
 
 if __name__ == '__main__':
