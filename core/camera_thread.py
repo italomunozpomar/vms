@@ -432,6 +432,8 @@ class CamaraThread(QThread): # Heredar de QThread
                         if not manos_arriba_queue.full():
                             frame_copy = img_bgr.copy()
                             manos_arriba_queue.put((self.canal_id, frame_copy), block=False)
+                        else:
+                            print(f"⚠️ Cola de manos arriba llena para cámara {self.canal_id}, descartando frame")
                     except Exception as e:
                         print(f"Error al enviar frame para detección de manos arriba en cámara {self.canal_id}: {e}")
 
@@ -441,6 +443,8 @@ class CamaraThread(QThread): # Heredar de QThread
                         if not rostros_queue.full():
                             frame_copy = img_bgr.copy()
                             rostros_queue.put((self.canal_id, frame_copy), block=False)
+                        else:
+                            print(f"⚠️ Cola de rostros llena para cámara {self.canal_id}, descartando frame")
                     except Exception as e:
                         print(f"Error al enviar frame para detección de rostros en cámara {self.canal_id}: {e}")
 

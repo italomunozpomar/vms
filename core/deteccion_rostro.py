@@ -40,24 +40,10 @@ setup_opencv_gpu('face_detection')
 print("Cargando modelo de detección de rostros...")
 net = cv2.dnn.readNetFromCaffe(PROTO_TXT_LOCAL, MODEL_CAFFE_LOCAL)
 
-# Configurar DNN para usar GPU si está disponible
-face_device = get_face_device()
-if face_device.type == 'cuda':
-    try:
-        gpu_id = int(face_device.index) if face_device.index is not None else 0
-        print(f"Intentando configurar OpenCV DNN para usar GPU {gpu_id}")
-        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
-        print(f"✅ Modelo de rostros cargado en GPU {gpu_id}")
-    except Exception as e:
-        print(f"⚠️ Error configurando GPU para rostros: {e}")
-        print("🔄 Usando CPU como fallback")
-        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-else:
-    print("🔧 Configurando modelo de rostros para CPU")
-    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+# Configurar DNN para usar SIEMPRE CPU (por compatibilidad)
+print("🔧 Forzando modelo de rostros en CPU (OpenCV DNN no soporta CUDA en este entorno)")
+net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
 
 print("Modelo de rostros cargado")
 
@@ -146,11 +132,14 @@ iniciar_db_worker()
 
 def detectar_rostros(frame, conf_threshold=0.5):
     global ultimo_registro
-
     (h, w) = frame.shape[:2]
     blob = cv2.dnn.blobFromImage(frame, 1.0, (300, 300), (104.0, 177.0, 123.0))
     net.setInput(blob)
-    detections = net.forward()
+    try:
+        detections = net.forward()
+    except Exception as e:
+        print(f"❌ Error crítico en inferencia DNN con CPU: {e}")
+        return frame
 
     ahora = datetime.now()
     rostros_detectados = []

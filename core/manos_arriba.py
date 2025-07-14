@@ -20,10 +20,10 @@ class ManosArribaDetector:
         if pose_device.type == 'cuda':
             gpu_id = int(pose_device.index) if pose_device.index is not None else 0
             print(f"MediaPipe Pose configurado para GPU {gpu_id}")
-            # Configurar variables de entorno para MediaPipe
             os.environ['MEDIAPIPE_DISABLE_GPU'] = '0'
         else:
             print("MediaPipe Pose usando CPU")
+            os.environ['MEDIAPIPE_DISABLE_GPU'] = '1'
             
         self.pose = mp_pose.Pose(
             min_detection_confidence=0.5, 
