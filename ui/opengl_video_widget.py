@@ -15,9 +15,14 @@ class OpenGLVideoWidget(QOpenGLWidget):
         self.texture_id = None
         self.setMinimumSize(320, 240)
         self.last_frame_time = 0
-        self.fps_limit = 30  # Limitar FPS para mejor rendimiento
+        self.fps_limit = 60  # Aumentar límite de FPS para mejor fluidez
         self.frame_cache = None
         self.cache_valid = False
+        
+        # Contador de FPS para depuración
+        self._fps_counter = 0
+        self._fps_last_time = time.time()
+        self._fps_display = 0
         
         # Configurar dispositivo de renderizado
         self.rendering_device = get_rendering_device()
@@ -26,7 +31,7 @@ class OpenGLVideoWidget(QOpenGLWidget):
         # Timer para actualización controlada
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.update)
-        self.update_timer.start(33)  # ~30 FPS
+        self.update_timer.start(16)  # ~60 FPS
 
     def set_frame(self, frame: np.ndarray):
         current_time = time.time()
@@ -38,6 +43,12 @@ class OpenGLVideoWidget(QOpenGLWidget):
         self.frame = frame
         self.cache_valid = False
         self.last_frame_time = current_time
+        # Contador de FPS para depuración
+        self._fps_counter += 1
+        if current_time - self._fps_last_time >= 1.0:
+            self._fps_display = self._fps_counter
+            self._fps_counter = 0
+            self._fps_last_time = current_time
         # No llamar update() aquí, se hace con el timer
 
     def initializeGL(self):
@@ -62,6 +73,9 @@ class OpenGLVideoWidget(QOpenGLWidget):
                 self.cache_valid = True
             
             self._render_texture()
+        
+        # Dibujar contador de FPS en la esquina superior izquierda
+        self._draw_fps_counter()
 
     def _update_texture(self):
         """Actualizar la textura OpenGL con el frame actual"""
@@ -112,6 +126,16 @@ class OpenGLVideoWidget(QOpenGLWidget):
         gl.glEnd()
         
         gl.glDisable(gl.GL_TEXTURE_2D)
+
+    def _draw_fps_counter(self):
+        # Mostrar el FPS en la esquina superior izquierda
+        from PyQt5.QtGui import QPainter, QColor, QFont
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.TextAntialiasing)
+        painter.setPen(QColor(0, 255, 0))
+        painter.setFont(QFont('Consolas', 14, QFont.Bold))
+        painter.drawText(10, 24, f"FPS: {self._fps_display}")
+        painter.end()
 
     def resizeGL(self, width, height):
         gl.glViewport(0, 0, width, height)

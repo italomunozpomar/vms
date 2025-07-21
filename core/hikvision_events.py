@@ -143,23 +143,9 @@ def descargar_imagen_bkgurl(url, username, password, timestamp, channel_id, cam_
     return ""
 
 def insertar_evento_hikvision(event_time, cam_ip, channel, event_type, event_desc, ruta_imagen):
-    """Inserta evento en la base de datos"""
-    try:
-        conn = pyodbc.connect(
-            f"DRIVER={DB_CONFIG['driver']};SERVER={DB_CONFIG['server']};DATABASE={DB_CONFIG['database']};UID={DB_CONFIG['uid']};PWD={DB_CONFIG['pwd']}"
-        )
-        cursor = conn.cursor()
-        query = '''
-        INSERT INTO cam_hikvision (event_time, cam_ip, channel, event_type, event_desc, ruta_imagen)
-        VALUES (?, ?, ?, ?, ?, ?)
-        '''
-        cursor.execute(query, (event_time, cam_ip, channel, event_type, event_desc, ruta_imagen))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        print("Evento insertado en la base de datos")
-    except Exception as e:
-        print(f"Error al insertar en base de datos: {e}")
+    """Inserta evento en la base de datos externa (ELIMINADO)"""
+    # Eliminado: No se realiza inserción en Azure SQL
+    print("[DEBUG] Evento NO insertado en base de datos externa (Azure SQL deshabilitado)")
 
 def escuchar_eventos_camara(cam):
     """Escucha eventos de una cámara específica"""

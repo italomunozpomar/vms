@@ -79,35 +79,13 @@ def db_worker():
                 # Guardar imagen
                 cv2.imwrite(filename, rostro)
                 print(f"Rostro capturado: {filename}")
-                conn = pyodbc.connect(conn_str)
-                cursor = conn.cursor()
-                # Insertar en Detecciones
-                cursor.execute("""
-                    INSERT INTO Detecciones (fecha, hora, x, y, ancho, alto, score_confianza, en_zona_interes)
-                    OUTPUT INSERTED.id_deteccion
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, ahora.date(), ahora.time(), int(x), int(y), int(ancho), int(alto), float(confidence), None)
-                result = cursor.fetchone()
-                if result is not None:
-                    id_deteccion = result[0]
-                    conn.commit()
-                    # Insertar en Capturas
-                    cursor.execute("""
-                        INSERT INTO Capturas (id_deteccion_fk, timestamp, path_imagen, tipo_evento, descripcion_evento)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, id_deteccion, ahora, filename, "Rostro detectado", "Captura automática con modelo DNN")
-                    conn.commit()
-                    print(f"Datos insertados en SQL Server para rostro: {filename}")
-                else:
-                    print(f"Error: No se obtuvo id_deteccion al insertar en Detecciones para {filename}")
-                cursor.close()
-                conn.close()
+                # --- ELIMINADO: Código de inserción en SQL Server ---
             except Exception as e:
                 print(f"Error en base de datos (async): {e}")
         except queue.Empty:
             continue
         except Exception as e:
-            print(f"❌ Error en worker de base de datos: {e}")
+            print(f"Error en worker de base de datos: {e}")
 
 def iniciar_db_worker():
     """Inicia el worker thread para base de datos"""
@@ -159,8 +137,9 @@ def detectar_rostros(frame, conf_threshold=0.5):
             if (ahora - ultimo_registro) > timedelta(seconds=5):
                 rostro = frame[y:y+alto, x:x+ancho].copy()
                 filename = f"output/rostros/rostro_detectado_{ahora.strftime('%Y%m%d_%H%M%S')}.jpg"
-                # Enviar todo a la cola para que el thread asíncrono lo procese
-                db_queue.put((ahora, x, y, ancho, alto, confidence, rostro, filename))
+                # Guardar imagen localmente, pero NO enviar a la cola de base de datos externa
+                cv2.imwrite(filename, rostro)
+                print(f"Rostro capturado (solo local): {filename}")
                 ultimo_registro = ahora
     return frame
 
