@@ -76,6 +76,9 @@ def notify_event_to_ui(cam_ip, channel, event_type, event_desc, ruta_imagen):
 def descargar_snapshot_manual(cam_ip, username, password, timestamp, channel_id, folder):
     """Descarga snapshot manual de la cámara"""
     # 1. Intentar snapshot de alta calidad (System/picture)
+    from config import config_manager
+    folder = str(config_manager.output_folder / "eventos" / "capturas")
+    os.makedirs(folder, exist_ok=True)
     url_system_picture = f"http://{cam_ip}/ISAPI/System/picture/channels/{int(channel_id)}"
     nombre_archivo_system = os.path.join(
         folder,
@@ -124,6 +127,9 @@ def descargar_snapshot_manual(cam_ip, username, password, timestamp, channel_id,
 
 def descargar_imagen_bkgurl(url, username, password, timestamp, channel_id, cam_ip, folder):
     """Descarga imagen desde bkgUrl"""
+    from config import config_manager
+    folder = str(config_manager.output_folder / "eventos" / "capturas")
+    os.makedirs(folder, exist_ok=True)
     nombre_archivo = os.path.join(
         folder,
         f"cam_{cam_ip.replace('.', '_')}_canal_{channel_id}_{timestamp.replace(':', '-')}_bkgurl.jpg"
@@ -156,7 +162,7 @@ def escuchar_eventos_camara(cam):
     print(f"Escuchando eventos desde {cam['ip']} canal {canal_especifico}...")
     
     # Crear estructura de carpetas organizada
-    base_folder = Path("output")
+    base_folder = config_manager.output_folder
     eventos_folder = base_folder / "eventos"
     eventos_folder.mkdir(parents=True, exist_ok=True)
     

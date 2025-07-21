@@ -2,6 +2,7 @@
 import threading
 import numpy as np
 from pathlib import Path
+import os
 from datetime import datetime, timedelta
 
 class ConfigManager:
@@ -40,8 +41,8 @@ class ConfigManager:
         self.rtsp_base = "rtsp://admin:nunoa2018@192.168.67.63:554/Streaming/Channels/{}?tcp/"
         
         # --- Rutas y Carpetas ---
-        # Usar Path(__file__).parent.parent para obtener la ruta del directorio raíz del proyecto (vms)
-        self.output_folder = Path(__file__).parent.parent / "output"
+        # Cambiar la carpeta de salida a D:/output
+        self.output_folder = Path("D:/output")
         self._setup_output_directories()
 
         # --- Estado Dinámico (protegido por el lock) ---
@@ -68,14 +69,15 @@ class ConfigManager:
         self.POST_EVENT_RECORD_SECONDS = 10 # Cuántos segundos después del evento se graban
 
     def _setup_output_directories(self):
-        """Crea las carpetas de salida si no existen."""
-        self.output_folder.mkdir(parents=True, exist_ok=True)
-        (self.output_folder / "captures").mkdir(exist_ok=True)
-        (self.output_folder / "captures" / "manos_arriba").mkdir(exist_ok=True)  # Carpeta específica para manos arriba
-        (self.output_folder / "captures" / "linecrossing").mkdir(exist_ok=True)  # Mantener las existentes
-        (self.output_folder / "rostros").mkdir(exist_ok=True)
-        (self.output_folder / "videos").mkdir(exist_ok=True)
-        (self.output_folder / "eventos").mkdir(exist_ok=True)
+        """Crea las carpetas de salida si no existen SOLO en D:/output."""
+        # No crear nada en la ruta del proyecto
+        os.makedirs(self.output_folder, exist_ok=True)
+        os.makedirs(self.output_folder / "captures", exist_ok=True)
+        os.makedirs(self.output_folder / "captures" / "manos_arriba", exist_ok=True)
+        os.makedirs(self.output_folder / "captures" / "linecrossing", exist_ok=True)
+        os.makedirs(self.output_folder / "rostros", exist_ok=True)
+        os.makedirs(self.output_folder / "videos", exist_ok=True)
+        os.makedirs(self.output_folder / "eventos", exist_ok=True)
 
     # --- Métodos para acceder y modificar el estado de forma segura ---
 

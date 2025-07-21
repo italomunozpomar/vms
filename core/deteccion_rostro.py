@@ -17,9 +17,9 @@ MODEL_CAFFE_URL = "https://github.com/opencv/opencv_3rdparty/raw/dnn_samples_fac
 PROTO_TXT_LOCAL = "core/deploy.prototxt"
 MODEL_CAFFE_LOCAL = "core/res10_300x300_ssd_iter_140000.caffemodel"
 
-# Crear carpeta de capturas si no existe
-if not os.path.exists("output/rostros"):
-    os.makedirs("output/rostros")
+# Eliminar creación de carpeta local
+# if not os.path.exists("output/rostros"):
+#     os.makedirs("output/rostros")
 
 # Descargar los archivos si no existen
 def descargar_archivo(url, destino):
@@ -136,7 +136,10 @@ def detectar_rostros(frame, conf_threshold=0.5):
             # Solo enviar a la cola si han pasado 5 segundos desde la última captura
             if (ahora - ultimo_registro) > timedelta(seconds=5):
                 rostro = frame[y:y+alto, x:x+ancho].copy()
-                filename = f"output/rostros/rostro_detectado_{ahora.strftime('%Y%m%d_%H%M%S')}.jpg"
+                from config import config_manager
+                output_dir = config_manager.output_folder / "rostros"
+                os.makedirs(output_dir, exist_ok=True)
+                filename = str(output_dir / f"rostro_detectado_{ahora.strftime('%Y%m%d_%H%M%S')}.jpg")
                 # Guardar imagen localmente, pero NO enviar a la cola de base de datos externa
                 cv2.imwrite(filename, rostro)
                 print(f"Rostro capturado (solo local): {filename}")

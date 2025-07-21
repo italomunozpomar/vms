@@ -62,13 +62,14 @@ class ManosArribaDetector:
                 elif time.time() - self.manos_arriba_start >= 2 and not self.captura_realizada:
                     if guardar_captura:
                         # Crear carpeta específica para manos arriba
-                        manos_arriba_folder = os.path.join(output_path, "captures", "manos_arriba")
+                        from config import config_manager
+                        manos_arriba_folder = config_manager.output_folder / "captures" / "manos_arriba"
                         os.makedirs(manos_arriba_folder, exist_ok=True)
                         
                         # Crear nombre de archivo más descriptivo
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                         fecha = datetime.now().strftime("%Y-%m-%d")
-                        ruta = os.path.join(manos_arriba_folder, f"cam_{canal_id}_manos_arriba_{fecha}_{timestamp}.jpg")
+                        ruta = str(manos_arriba_folder / f"cam_{canal_id}_manos_arriba_{fecha}_{timestamp}.jpg")
                         
                         cv2.imwrite(ruta, frame)
                         print(f"🙌 Captura manos arriba tomada: {ruta}")
