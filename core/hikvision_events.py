@@ -216,19 +216,20 @@ def escuchar_eventos_camara(cam):
                         if event_type == "videoloss":
                             continue
                         elif event_type == "motion" or event_type == "VMD":  # Agregar VMD también
-                            print(f"MOVIMIENTO DETECTADO en cam {cam['ip']} canal {channel}")
                             # Usar canal_logico calculado desde el channel del evento
                             canal_logico = mapear_canal_logico(channel)
                             
                             # Solo procesar si el merodeo está activo para esta cámara
                             if config_manager.is_surveillance_active(canal_logico):
+                                print(f"MOVIMIENTO DETECTADO en cam {cam['ip']} canal {channel}")
                                 # Notificar a la UI para parpadear la cámara usando el canal lógico
                                 try:
                                     notify_event_to_ui(cam['ip'], canal_logico, "motion", "Movimiento detectado", "")
                                 except Exception as e:
                                     print(f"Error al notificar evento motion: {e}")
-                            else:
-                                print(f"Merodeo desactivado para cámara {canal_logico}, ignorando detección de movimiento")
+                            # Comentar o eliminar este else para no mostrar spam en consola
+                            # else:
+                            #     print(f"Merodeo desactivado para cámara {canal_logico}, ignorando detección de movimiento")
                             continue
                         
                         # Para otros eventos (linecrossing, intrusion), verificar si merodeo está activo
