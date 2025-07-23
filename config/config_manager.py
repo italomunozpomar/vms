@@ -52,6 +52,7 @@ class ConfigManager:
         self._recording_flags = {canal: False for canal in self.canales_originales}
         self._manos_arriba_activa = {canal: False for canal in self.canales_originales}
         self._rostros_activa = {canal: False for canal in self.canales_originales}
+        self._merodeo_activo = {canal: False for canal in self.canales_originales}
         self._snapshot_flags = {canal: False for canal in self.canales_originales}
         self._video_writers = {canal: None for canal in self.canales_originales}
         self._event_video_writers = {canal: None for canal in self.canales_originales} # Nuevo para grabaciones de eventos
@@ -240,6 +241,17 @@ class ConfigManager:
         with self._lock:
             self._rostros_activa[canal_id] = not self._rostros_activa.get(canal_id, False)
             return self._rostros_activa[canal_id]
+
+    def is_surveillance_active(self, canal_id):
+        """Verifica si el merodeo/vigilancia está activo."""
+        with self._lock:
+            return self._merodeo_activo.get(canal_id, False)
+
+    def toggle_surveillance(self, canal_id):
+        """Activa/desactiva el modo merodeo/vigilancia."""
+        with self._lock:
+            self._merodeo_activo[canal_id] = not self._merodeo_activo.get(canal_id, False)
+            return self._merodeo_activo[canal_id]
             
     def take_snapshot(self, canal_id):
         """Activa el flag para tomar un snapshot."""

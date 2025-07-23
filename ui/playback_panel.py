@@ -38,7 +38,7 @@ class PlaybackPanel(QWidget):
         self.event_type_selector = QComboBox()
         self.event_type_selector.addItem("Todos los eventos")
         # Añadir tipos de eventos comunes
-        self.event_type_selector.addItems(["motion", "linecrossing", "intrusion", "loitering", "face_detection", "hands_up"])
+        self.event_type_selector.addItems(["motion", "linecrossing", "intrusion", "loitering", "face_detection", "hands_up", "surveillance"])
         search_layout.addWidget(self.event_type_selector)
         
         # Botón para actualizar tipos de eventos desde la base de datos

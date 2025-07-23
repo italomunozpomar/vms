@@ -194,6 +194,7 @@ class VMSGridWindow(QWidget):
 
         self.btn_record = QPushButton("  Grabar")
         self.btn_snapshot = QPushButton("  Snapshot")
+        self.btn_merodeo = QPushButton("  Merodeo")
         self.btn_analitica = QPushButton("  Detección Personas")
         self.btn_manos_arriba = QPushButton("  Manos Arriba")
         self.btn_rostros = QPushButton("  Detección Rostros")
@@ -201,6 +202,7 @@ class VMSGridWindow(QWidget):
         buttons = {
             self.btn_record: ("media-record", "Iniciar/Detener grabación de la cámara seleccionada"),
             self.btn_snapshot: ("camera-photo", "Tomar una captura de la cámara seleccionada"),
+            self.btn_merodeo: ("shield-check", "Activar/Desactivar modo vigilancia (detecta movimiento, líneas e intrusiones)"),
             self.btn_analitica: ("user-identity", "Activar/Desactivar detección de personas (YOLO)"),
             self.btn_manos_arriba: ("edit-undo", "Activar/Desactivar detección de manos arriba"),
             self.btn_rostros: ("face-smile", "Activar/Desactivar detección de rostros")
@@ -263,6 +265,7 @@ class VMSGridWindow(QWidget):
 
         self.btn_record.clicked.connect(self.toggle_grabacion)
         self.btn_snapshot.clicked.connect(self.tomar_snapshot)
+        self.btn_merodeo.clicked.connect(self.toggle_merodeo)
         self.btn_analitica.clicked.connect(self.toggle_analitica)
         self.btn_manos_arriba.clicked.connect(self.toggle_manos_arriba)
         self.btn_rostros.clicked.connect(self.toggle_rostros)
@@ -270,6 +273,7 @@ class VMSGridWindow(QWidget):
 
         # Inicializar el estilo de los botones
         self._update_button_style(self.btn_record, False)
+        self._update_button_style(self.btn_merodeo, False)
         self._update_button_style(self.btn_analitica, False)
         self._update_button_style(self.btn_manos_arriba, False)
         self._update_button_style(self.btn_rostros, False)
@@ -302,6 +306,7 @@ class VMSGridWindow(QWidget):
     def _get_analytics_status_text(self, canal_id):
         estados = []
         if config_manager.is_recording(canal_id): estados.append("Grabando: ON")
+        if config_manager.is_surveillance_active(canal_id): estados.append("Merodeo: ON")
         if config_manager.is_analytics_active(canal_id): estados.append("Personas: ON")
         if config_manager.is_hands_up_active(canal_id): estados.append("Manos: ON")
         if config_manager.is_face_detection_active(canal_id): estados.append("Rostros: ON")
@@ -367,6 +372,14 @@ class VMSGridWindow(QWidget):
         for canal in self.selected_cameras:
             config_manager.take_snapshot(canal)
             print(f"Snapshot solicitado para cámara {canal}")
+
+    def toggle_merodeo(self):
+        for canal in self.selected_cameras:
+            is_active = config_manager.toggle_surveillance(canal)
+            print(f"Merodeo/Vigilancia {'ON' if is_active else 'OFF'} en cámara {canal}")
+            self._update_button_style(self.btn_merodeo, is_active)
+            if canal in self.labels:
+                self.labels[canal].update_analytics_status(self._get_analytics_status_text(canal))
 
     def toggle_analitica(self):
         for canal in self.selected_cameras:

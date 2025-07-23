@@ -219,14 +219,27 @@ def escuchar_eventos_camara(cam):
                             print(f"MOVIMIENTO DETECTADO en cam {cam['ip']} canal {channel}")
                             # Usar canal_logico calculado desde el channel del evento
                             canal_logico = mapear_canal_logico(channel)
-                            # Notificar a la UI para parpadear la cámara usando el canal lógico
-                            try:
-                                notify_event_to_ui(cam['ip'], canal_logico, "motion", "Movimiento detectado", "")
-                            except Exception as e:
-                                print(f"Error al notificar evento motion: {e}")
+                            
+                            # Solo procesar si el merodeo está activo para esta cámara
+                            if config_manager.is_surveillance_active(canal_logico):
+                                # Notificar a la UI para parpadear la cámara usando el canal lógico
+                                try:
+                                    notify_event_to_ui(cam['ip'], canal_logico, "motion", "Movimiento detectado", "")
+                                except Exception as e:
+                                    print(f"Error al notificar evento motion: {e}")
+                            else:
+                                print(f"Merodeo desactivado para cámara {canal_logico}, ignorando detección de movimiento")
                             continue
                         
-                        # Para otros eventos, procesar normalmente
+                        # Para otros eventos (linecrossing, intrusion), verificar si merodeo está activo
+                        canal_logico = mapear_canal_logico(channel)
+                        
+                        # Solo procesar eventos de seguridad si el merodeo está activo
+                        if event_type.lower() in ["linecrossing", "linedetection", "intrusion", "loitering"]:
+                            if not config_manager.is_surveillance_active(canal_logico):
+                                print(f"Merodeo desactivado para cámara {canal_logico}, ignorando evento {event_type}")
+                                continue
+                        
                         print(f"Evento [{event_type}] en cam {cam['ip']} canal {channel} - Fecha: {event_time} - Desc: {event_desc}")
                         
                         # Guardar en log
@@ -237,7 +250,6 @@ def escuchar_eventos_camara(cam):
                             print(f"Error al escribir en log: {e}")
                         
                         # 1. Mapear canal real a lógico
-                        canal_logico = mapear_canal_logico(channel)
                         canal_real = str(channel)
 
                         # 2. Determinar carpeta por tipo de evento (estructura simplificada)
