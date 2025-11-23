@@ -39,7 +39,7 @@ def validate_camera_config():
 canales_activos = {canal: canal for canal in canales_originales}
 
 # Formato base RTSP (usa {} para insertar canal)
-rtsp_base = "rtsp://admin:nunoa2018@192.168.67.63:554/Streaming/Channels/{}?tcp/"
+rtsp_base = ""
 
 # Frames en memoria para cada cámara (inicializados vacíos)
 frames = {canal: np.zeros((480, 640, 3), dtype=np.uint8) for canal in canales_originales}
